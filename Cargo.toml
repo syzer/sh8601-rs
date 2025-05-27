@@ -1,0 +1,41 @@
+[package]
+edition = "2021"
+name = "sh8601-rs"
+version = "0.1.0"
+
+[[bin]]
+name = "sh8601-rs"
+path = "./src/bin/main.rs"
+
+[dependencies]
+embedded-hal = "1.0.0"
+embedded-graphics = "0.8.1"
+embedded-graphics-core = "0.4.0"
+critical-section = "1.2.0"
+esp-alloc = "0.7.0"
+esp-backtrace = { version = "0.15.1", features = [
+  "esp32s3",
+  "exception-handler",
+  "panic-handler",
+  "println",
+] }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", features = [
+  "esp32s3",
+  "psram",
+  "unstable",
+] }
+esp-println = { version = "0.13.0", features = ["esp32s3"] }
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1        # LLVM can perform better optimizations using a single thread
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
