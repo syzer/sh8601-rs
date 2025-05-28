@@ -1,9 +1,9 @@
-use crate::{DisplayInterface, DrawTarget, ResetInterface, Sh8601Driver};
+use crate::{ControllerInterface, DrawTarget, ResetInterface, Sh8601Driver};
 use embedded_graphics_core::{pixelcolor::Rgb888, prelude::*};
 
 impl<IFACE, RST> DrawTarget for Sh8601Driver<IFACE, RST>
 where
-    IFACE: DisplayInterface,
+    IFACE: ControllerInterface,
     RST: ResetInterface,
 {
     type Color = Rgb888;
@@ -45,7 +45,7 @@ where
 
 impl<IFACE, RST> OriginDimensions for Sh8601Driver<IFACE, RST>
 where
-    IFACE: DisplayInterface,
+    IFACE: ControllerInterface,
     RST: ResetInterface,
 {
     fn size(&self) -> Size {

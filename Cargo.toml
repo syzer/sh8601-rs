@@ -2,40 +2,47 @@
 edition = "2021"
 name = "sh8601-rs"
 version = "0.1.0"
+description = "A Rust driver for the SH8601 display controller"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/theembeddedrustacean/sh8601-rs"
+keywords = ["embedded", "display", "sh8601", "esp32", "no_std"]
+categories = ["embedded"]
+readme = "README.md"
+homepage = "https://blog.theembeddedrustacean.com/"
+exclude = ["target/debug/*", "assets/*"]
 
-[[bin]]
-name = "sh8601-rs"
-path = "./src/bin/main.rs"
+[lib]
+name = "sh8601_rs"
+path = "src/lib.rs"
 
 [dependencies]
 embedded-hal = "1.0.0"
 embedded-graphics = "0.8.1"
 embedded-graphics-core = "0.4.0"
-critical-section = "1.2.0"
-esp-alloc = "0.7.0"
-esp-backtrace = { version = "0.15.1", features = [
+document-features = "0.2.11"
+# Optional dependencies for Waveshare 1.8" AMOLED display
+critical-section = { version = "1.2.0", optional = true }
+esp-alloc = { version = "0.7.0", optional = true }
+esp-backtrace = { version = "0.15.1", optional = true, features = [
   "esp32s3",
   "exception-handler",
   "panic-handler",
   "println",
 ] }
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", features = [
+esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", optional = true, features = [
   "esp32s3",
   "psram",
   "unstable",
 ] }
-esp-println = { version = "0.13.0", features = ["esp32s3"] }
+esp-println = { version = "0.13.0", optional = true, features = ["esp32s3"] }
 
-[profile.dev]
-# Rust debug is too slow.
-# For debug builds always builds with some optimization
-opt-level = "s"
 
-[profile.release]
-codegen-units = 1        # LLVM can perform better optimizations using a single thread
-debug = 2
-debug-assertions = false
-incremental = false
-lto = 'fat'
-opt-level = 's'
-overflow-checks = false
+[features]
+## Enable support for the Waveshare 1.8" AMOLED display
+waveshare_18_amoled = [
+  "dep:esp-alloc",
+  "dep:esp-backtrace",
+  "dep:esp-hal",
+  "dep:esp-println",
+  "dep:critical-section",
+]

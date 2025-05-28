@@ -2,7 +2,7 @@
 #![no_main]
 
 use sh8601_rs::{
-    framebuffer_size, ColorMode, DisplaySize, I2cGpioResetDriver, Sh8601Driver, Ws18AmoledDriver,
+    framebuffer_size, ColorMode, DisplaySize, ResetDriver, Sh8601Driver, Ws18AmoledDriver,
     DMA_CHUNK_SIZE,
 };
 
@@ -84,7 +84,7 @@ fn main() -> ! {
     .with_scl(peripherals.GPIO14);
 
     // Initialize I2C GPIO Reset Pin for the WaveShare 1.8" AMOLED display
-    let reset = I2cGpioResetDriver::new(i2c);
+    let reset = ResetDriver::new(i2c);
 
     // Initialize display driver for the Waveshare 1.8" AMOLED display
     let ws_driver = Ws18AmoledDriver::new(lcd_spi);

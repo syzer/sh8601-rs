@@ -1,7 +1,7 @@
 //! Driver implementation for Waveshare ESP32-S3 1.8" AMOLED
 //! Uses QSPI interface and I2C-based GPIO expander or GPIO for reset.
 
-use crate::{DisplayInterface, ResetInterface};
+use crate::{ControllerInterface, ResetInterface};
 use esp_hal::{
     delay::Delay,
     i2c::master::{Error as I2cError, I2c},
@@ -18,7 +18,7 @@ const QSPI_PIXEL_OPCODE: u8 = 0x32;
 const QSPI_CONTROL_OPCODE: u8 = 0x02;
 pub const DMA_CHUNK_SIZE: usize = 16380;
 
-/// QSPI implementation of DisplayInterface for SH8601
+/// QSPI implementation of ControllerInterface for SH8601
 pub struct Ws18AmoledDriver {
     pub qspi: SpiDmaBus<'static, Blocking>,
 }
@@ -29,7 +29,7 @@ impl Ws18AmoledDriver {
     }
 }
 
-impl DisplayInterface for Ws18AmoledDriver {
+impl ControllerInterface for Ws18AmoledDriver {
     type Error = SpiError;
 
     fn send_command(&mut self, cmd: u8) -> Result<(), Self::Error> {
@@ -88,17 +88,17 @@ impl DisplayInterface for Ws18AmoledDriver {
 }
 
 /// I2C-controlled GPIO Reset Pin
-pub struct I2cGpioResetDriver {
+pub struct ResetDriver {
     i2c: I2c<'static, Blocking>,
 }
 
-impl I2cGpioResetDriver {
+impl ResetDriver {
     pub fn new(i2c: I2c<'static, Blocking>) -> Self {
-        I2cGpioResetDriver { i2c }
+        ResetDriver { i2c }
     }
 }
 
-impl ResetInterface for I2cGpioResetDriver {
+impl ResetInterface for ResetDriver {
     type Error = I2cError;
 
     fn reset(&mut self) -> Result<(), Self::Error> {

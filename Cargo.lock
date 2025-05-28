@@ -951,6 +951,7 @@ name = "sh8601-rs"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "document-features",
  "embedded-graphics",
  "embedded-graphics-core",
  "embedded-hal 1.0.0",

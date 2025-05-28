@@ -1,15 +1,48 @@
 //! # SH8601 Driver Crate
 //!
-//! A platform-agnostic driver for the SH8601 AMOLED display controller,
-//! initially targeting ESP32-S3 with QSPI, but designed for future
-//! embedded-hal compatibility.
+//! An embedded-graphics compatible driver for the SH8601 AMOLED display controller IC.
+//!
+//! This driver is not embedded-hal compatible, but provides a generic interface
+//! for controlling the SH8601 display controller.
+//! Different displays can be supported by implementing the `ControllerInterface` and `ResetInterface` traits.
+//! This is because the SH8601 is used in different displays with various controller interfaces such as SPI or QSPI.
+//! Addittionally, the reset pin is controlled via GPIO or I2C GPIO expander.
+//!
+//! The driver currently incorporates support the Waveshare 1.8" AMOLED display out of the box, but can be extended to support other displays using the SH8601 controller.
+//!
+//! ## Usage
+//!
+//! 1. Implement the `ControllerInterface` trait for the controller driving interface Ex. QSPI
+//! 2. Implement the `ResetInterface` trait for the Reset pin.
+//! 3. Create a `Sh8601Driver` instance with the display interface and reset pin.
+//! 4. Use the driver to draw using `embedded-graphics`.
+//!
+//! If you are going to use heap allocated framebuffer, you will need to make sure that an allocator is available in your environment.
+//! In some crates this is done by enabling the `alloc` feature.
+//!
+//! ## Feature Flags
+#![doc = document_features::document_features!()]
+//!
+//! ## Examples
+//!
+//! See the `examples` directory for a usage example with the WaveShare 1.8" AMOLED Display.
+//!
+//! The WaveShare 1.8" AMOLED Display controls the SH8601 via an ESP32-S3 over QSPI and uses an I2C GPIO expander for the reset pin.
+//! The example implementation uses a PSRAM heap allocated framebuffer and DMA for efficient transfers.
+//!
+//! The schematic is available here: <https://files.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.8/ESP32-S3-Touch-AMOLED-1.8.pdf>
+//!
+//! To run the example, with the WaveShare 1.8" AMOLED Display, clone the project and run following command from the project root:
+//! ```bash
+//! cargo run --example ws_18in_amoled --features "waveshare_18_amoled"
+//! ```
+//!
 
 #![no_std]
-
-// #[cfg(feature = "waveshare_18_amoled")]
+#[cfg(feature = "waveshare_18_amoled")]
 pub mod displays;
 
-// #[cfg(feature = "waveshare_18_amoled")]
+#[cfg(feature = "waveshare_18_amoled")]
 pub use displays::waveshare_18_amoled::*;
 
 extern crate alloc;
@@ -46,8 +79,8 @@ pub enum DriverError<InterfaceError, ResetError> {
     InvalidConfiguration(&'static str),
 }
 
-/// Trait to implement the display communication interface used with the SH8601 (QSPI, SPI, etc.).
-pub trait DisplayInterface {
+/// Trait to implement the SH8601 controller communication interface (QSPI, SPI, etc.).
+pub trait ControllerInterface {
     /// The specific error type for this interface implementation.
     type Error;
 
@@ -74,7 +107,7 @@ pub trait ResetInterface {
     fn reset(&mut self) -> Result<(), Self::Error>;
 }
 
-/// SH8601 Command Set (Add more as needed from Section 5.1/5.2 of datasheet)
+/// SH8601 Command Set
 pub mod commands {
     pub const NOP: u8 = 0x00;
     pub const SWRESET: u8 = 0x01;
@@ -110,6 +143,7 @@ pub mod commands {
                                    // ... Add other commands based on datasheet section 5.1
 }
 
+/// Color modes supported by the SH8601 display controller.
 pub enum ColorMode {
     /// 16-bit RGB565 format
     Rgb565,
@@ -134,12 +168,12 @@ impl ColorMode {
 }
 
 /// Computes the framebuffer size (in bytes) for a given display and color mode.
-/// Can be used to define const N in `new_static` and `new_heap`.
+/// Recommended to use when defining generic constant framebuffer size (const `N`) when instantiating display controller driver with `new_static` and `new_heap`.
 pub const fn framebuffer_size(display: DisplaySize, color: ColorMode) -> usize {
     (display.width as usize) * (display.height as usize) * color.bytes_per_pixel()
 }
 
-// Frambuffer enum to hold either a static array or a boxed array
+/// Frambuffer enum to hold either a static array or a boxed array
 pub enum Framebuffer {
     Static(&'static mut [u8]),
     Heap(Box<[u8]>),
@@ -191,7 +225,7 @@ impl core::ops::DerefMut for Framebuffer {
 /// Generic over the display interface (`IFACE`) and reset pin (`RST`).
 pub struct Sh8601Driver<IFACE, RST>
 where
-    IFACE: DisplayInterface,
+    IFACE: ControllerInterface,
     RST: ResetInterface,
 {
     interface: IFACE,
@@ -202,7 +236,7 @@ where
 
 impl<IFACE, RST> Sh8601Driver<IFACE, RST>
 where
-    IFACE: DisplayInterface,
+    IFACE: ControllerInterface,
     RST: ResetInterface,
 {
     /// Creates a new driver instance with static array and initializes the display.
