@@ -29,7 +29,7 @@ esp-backtrace = { version = "0.15.1", optional = true, features = [
   "panic-handler",
   "println",
 ] }
-esp-hal = { git = "https://github.com/esp-rs/esp-hal.git", optional = true, features = [
+esp-hal = { version = "1.0.0-beta.1", optional = true, features = [
   "esp32s3",
   "psram",
   "unstable",

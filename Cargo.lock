@@ -377,7 +377,7 @@ version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4cd70abe47945c9116972781b5c05277ad855a5f5569fe2afd3e2e61a103cc0"
 dependencies = [
- "esp-build 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-build 0.2.0",
  "esp-println",
  "semihosting",
 ]
@@ -395,8 +395,9 @@ dependencies = [
 
 [[package]]
 name = "esp-build"
-version = "0.2.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "837020ff95fbf4c15c206541dda7994f1bbe6e1505e36a6a5ecb51fdb61656d7"
 dependencies = [
  "quote",
  "syn",
@@ -405,8 +406,9 @@ dependencies = [
 
 [[package]]
 name = "esp-config"
-version = "0.3.1"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c8c4c95d8d6243ddb39efe1fcf2524c9becd0f86bb3e24048ed30b4f553609f"
 dependencies = [
  "document-features",
  "serde",
@@ -415,8 +417,9 @@ dependencies = [
 
 [[package]]
 name = "esp-hal"
-version = "1.0.0-beta.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "1.0.0-beta.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d973697621cd3eef9c3f260fa8c1af77d8547cfc92734255d8e8ddf05c7d331"
 dependencies = [
  "basic-toml",
  "bitfield",
@@ -438,7 +441,7 @@ dependencies = [
  "embedded-io",
  "embedded-io-async",
  "enumset",
- "esp-build 0.2.0 (git+https://github.com/esp-rs/esp-hal.git)",
+ "esp-build 0.3.0",
  "esp-config",
  "esp-hal-procmacros",
  "esp-metadata",
@@ -462,8 +465,9 @@ dependencies = [
 
 [[package]]
 name = "esp-hal-procmacros"
-version = "0.17.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73164008cb2eada2ef85e6b0e459001d851f9b8e65e96e0d594bdfa8cf1b813b"
 dependencies = [
  "darling",
  "document-features",
@@ -478,8 +482,9 @@ dependencies = [
 
 [[package]]
 name = "esp-metadata"
-version = "0.6.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0154d59933c2419ef25a01938517cc6969f47b6af53ebb34c279393aa20d9654"
 dependencies = [
  "anyhow",
  "basic-toml",
@@ -494,15 +499,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "960703930f9f3c899ddedd122ea27a09d6a612c22323157e524af5b18876448e"
 dependencies = [
  "critical-section",
- "esp-build 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-build 0.2.0",
  "log",
  "portable-atomic",
 ]
 
 [[package]]
 name = "esp-riscv-rt"
-version = "0.10.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c05c2badd16cbd6307d463090615332b77c17a6766b41ba5fe5bb783310e8af6"
 dependencies = [
  "document-features",
  "riscv",
@@ -1195,8 +1201,9 @@ dependencies = [
 
 [[package]]
 name = "xtensa-lx"
-version = "0.10.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68737a6c8f32ddcd97476acf68ddc6d411697fd94f64a601af16854b74967dff"
 dependencies = [
  "critical-section",
  "document-features",
@@ -1204,8 +1211,9 @@ dependencies = [
 
 [[package]]
 name = "xtensa-lx-rt"
-version = "0.18.0"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "235815f34d1bf9c2f9c07917e2b63efbcab5ca5ce9d8faddb97b7105eed1ade3"
 dependencies = [
  "anyhow",
  "document-features",
@@ -1221,8 +1229,9 @@ dependencies = [
 
 [[package]]
 name = "xtensa-lx-rt-proc-macros"
-version = "0.2.2"
-source = "git+https://github.com/esp-rs/esp-hal.git#631b4aab410cfd1aabe101f2b883101635668e77"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c1ab67b22f0576b953a25c43bdfed0ff84af2e01ced85e95c29e7bac6bf2180"
 dependencies = [
  "darling",
  "proc-macro2",
