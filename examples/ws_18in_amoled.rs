@@ -20,6 +20,7 @@ use embedded_graphics::{
 extern crate alloc;
 use esp_alloc as _;
 use esp_backtrace as _;
+use esp_bootloader_esp_idf::esp_app_desc;
 use esp_hal::{
     delay::Delay,
     dma::{DmaRxBuf, DmaTxBuf},
@@ -33,6 +34,8 @@ use esp_hal::{
     time::Rate,
 };
 use esp_println::println;
+
+esp_app_desc!();
 
 #[main]
 fn main() -> ! {
