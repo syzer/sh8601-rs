@@ -13,8 +13,6 @@ use esp_hal::{
     Blocking,
 };
 
-esp_bootloader_esp_idf::esp_app_desc!();
-
 const CMD_RAMWR: u32 = 0x2C;
 const CMD_RAMWRC: u32 = 0x3C;
 const QSPI_PIXEL_OPCODE: u8 = 0x32;
