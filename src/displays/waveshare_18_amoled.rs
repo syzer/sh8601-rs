@@ -5,12 +5,15 @@ use crate::{ControllerInterface, ResetInterface};
 use esp_hal::{
     delay::Delay,
     i2c::master::{Error as I2cError, I2c},
+    spi::master::DataMode,
     spi::{
         master::{Address, Command, SpiDmaBus},
-        DataMode, Error as SpiError,
+        Error as SpiError,
     },
     Blocking,
 };
+
+esp_bootloader_esp_idf::esp_app_desc!();
 
 const CMD_RAMWR: u32 = 0x2C;
 const CMD_RAMWRC: u32 = 0x3C;
