@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "sh8601-rs"
-version = "0.1.3"
+version = "0.1.4"
 description = "A Rust driver for the SH8601 display controller"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/theembeddedrustacean/sh8601-rs"
