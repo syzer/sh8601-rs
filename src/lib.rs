@@ -140,7 +140,6 @@ pub mod commands {
     pub const RDDISBV: u8 = 0x52; // Read Display Brightness Value
     pub const WRCTRLD1: u8 = 0x53; // Write CTRL Display 1
     pub const RDCTRLD1: u8 = 0x54; // Read CTRL Display 1
-                                   // ... Add other commands based on datasheet section 5.1
 }
 
 /// Color modes supported by the SH8601 display controller.
@@ -161,7 +160,7 @@ impl ColorMode {
         match self {
             ColorMode::Rgb565 => 2,
             ColorMode::Rgb888 => 3,
-            ColorMode::Rgb666 => 3, // 3 bytes typically used even if only 18 bits
+            ColorMode::Rgb666 => 3,
             ColorMode::Gray8 => 1,
         }
     }
@@ -472,6 +471,39 @@ where
         // The send_pixels method itself should handle sending RAMWR (0x2C).
         self.interface
             .send_pixels(&self.framebuffer)
+            .map_err(DriverError::InterfaceError)?;
+        Ok(())
+    }
+
+    pub fn partial_flush(
+        &mut self,
+        x_start: u16,
+        x_end: u16,
+        y_start: u16,
+        y_end: u16,
+        color: ColorMode,
+    ) -> Result<(), DriverError<IFACE::Error, RST::Error>> {
+        self.set_window(x_start, y_start, x_end, y_end)?;
+        let bytes_per_pixel = color.bytes_per_pixel();
+        let fb_width = self.config.width as usize * bytes_per_pixel;
+        let width = (x_end - x_start + 1) as usize;
+        let height = (y_end - y_start + 1) as usize;
+        let mut pixel_data = alloc::vec::Vec::with_capacity(width * height * bytes_per_pixel);
+
+        for y in 0..height {
+            let offset = (y_start as usize + y) * fb_width + (x_start as usize * bytes_per_pixel);
+            let row_end = offset + (width * bytes_per_pixel);
+            if offset < self.framebuffer.len() && row_end <= self.framebuffer.len() {
+                pixel_data.extend_from_slice(&self.framebuffer[offset..row_end]);
+            } else {
+                return Err(DriverError::InvalidConfiguration(
+                    "Framebuffer slice out of bounds",
+                ));
+            }
+        }
+
+        self.interface
+            .send_pixels(&pixel_data)
             .map_err(DriverError::InterfaceError)?;
         Ok(())
     }
