@@ -5,7 +5,7 @@ use crate::{ControllerInterface, ResetInterface};
 use esp_hal::{
     delay::Delay,
     spi::{
-        master::{Address, Command, SpiDmaBus, DataMode},
+        master::{Address, Command, DataMode, SpiDmaBus},
         Error as SpiError,
     },
     Blocking,
