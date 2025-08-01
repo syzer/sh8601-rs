@@ -51,7 +51,7 @@ waveshare_18_amoled = [
   "dep:esp-println",
   "dep:critical-section",
   "dep:esp-bootloader-esp-idf",
-  "esp-println/jtag-serial",
+  "esp-println/auto",
 ]
 
 [profile.dev]
