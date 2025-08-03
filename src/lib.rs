@@ -6,7 +6,7 @@
 //! for controlling the SH8601 display controller.
 //! Different displays can be supported by implementing the `ControllerInterface` and `ResetInterface` traits.
 //! This is because the SH8601 is used in different displays with various controller interfaces such as SPI or QSPI.
-//! Addittionally, the reset pin is controlled via GPIO or I2C GPIO expander.
+//! Additionally, the reset pin is controlled via GPIO or I2C GPIO expander.
 //!
 //! The driver currently incorporates support the Waveshare 1.8" AMOLED display out of the box, but can be extended to support other displays using the SH8601 controller.
 //!
