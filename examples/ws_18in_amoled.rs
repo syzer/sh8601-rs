@@ -100,9 +100,9 @@ fn main() -> ! {
 
     // Puts the image into the firmware. One 368×448 RGB888 image is ~496 KB; RGB565 is ~330 KB.
     // If you’ll show many images, don’t embed—load from SD or SPI flash.
-    static IMG1: &[u8] = include_bytes!("../assets/rgb/pic_1_368x448.rgb");
-    static IMG2: &[u8] = include_bytes!("../assets/rgb/pic_2_368x448.rgb");
-    static IMG3: &[u8] = include_bytes!("../assets/rgb/pic_3_368x448.rgb");
+    static IMG1: &[u8] = include_bytes!("../assets/rgb/pic_11_368x448.rgb");
+    static IMG2: &[u8] = include_bytes!("../assets/rgb/pic_22_368x448.rgb");
+    static IMG3: &[u8] = include_bytes!("../assets/rgb/pic_33_368x448.rgb");
 
     // Image playlist and state
     let images: [&[u8]; 3] = [IMG1, IMG2, IMG3];
