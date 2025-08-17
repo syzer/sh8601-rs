@@ -109,6 +109,13 @@ fn main() -> ! {
     let mut img_idx: usize = 0;
     let mut prev_pressed = false; // simple edge detection
 
+    // Prebuild ImageRaw objects once at startup (avoid per-touch construction)
+    let raws: [ImageRaw<'static, Rgb888>; 3] = [
+        ImageRaw::<Rgb888>::new(images[0], W),
+        ImageRaw::<Rgb888>::new(images[1], W),
+        ImageRaw::<Rgb888>::new(images[2], W),
+    ];
+
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
 
     let delay = Delay::new();
@@ -230,8 +237,7 @@ fn main() -> ! {
 
     // Draw initial image (index 0)
     {
-        let raw = ImageRaw::<Rgb888>::new(images[img_idx], W);
-        if let Err(_e) = Image::new(&raw, Point::new(0, 0)).draw(&mut display) {
+        if let Err(_e) = Image::new(&raws[img_idx], Point::new(0, 0)).draw(&mut display) {
             println!("Error drawing image");
         }
         let _ = display.flush().ok();
@@ -244,12 +250,10 @@ fn main() -> ! {
                 if !prev_pressed {
                     // edge: Released -> Pressed
                     img_idx = (img_idx + 1) % images.len();
-                    println!("Next image ({}): x={} y={}", img_idx + 1, p.x, p.y);
-                    let raw = ImageRaw::<Rgb888>::new(images[img_idx], W);
-                    if let Err(_e) = Image::new(&raw, Point::new(0, 0)).draw(&mut display) {
+                    if let Err(_e) = Image::new(&raws[img_idx], Point::new(0, 0)).draw(&mut display) {
                         println!("Error drawing image");
                     }
-                    // bit shit, but will do
+                    // bit shit, but will do7
                     if let Err(e) = display.flush() {
                         println!("Error flushing display {:?}", e);
                     }
@@ -259,15 +263,11 @@ fn main() -> ! {
             Ok(TouchState::Released) => {
                 prev_pressed = false;
             }
-            Ok(_) => {
-                // other states (if any)
-                prev_pressed = false;
-            }
             Err(_e) => {
                 // ignore transient I2C errors
             }
         }
 
-        delay.delay_millis(50);
+        delay.delay_millis(10);
     }
 }

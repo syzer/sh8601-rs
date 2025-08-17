@@ -39,6 +39,9 @@ resizeImages:
 run:
     cargo run --example ws_18in_amoled --features "waveshare_18_amoled"
 
+release:
+    cargo run --example ws_18in_amoled --features "waveshare_18_amoled" --release
+
 # Clean build artifacts
 clean:
     cargo clean
