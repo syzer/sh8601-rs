@@ -8,12 +8,12 @@ use sh8601_rs::{
 
 use embedded_graphics::{
     mono_font::{
-        ascii::{FONT_10X20, FONT_6X10},
+        ascii::{FONT_10X20},
         MonoTextStyle,
     },
-    pixelcolor::{Rgb888,Rgb565},
+    pixelcolor::{Rgb888},
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
+    primitives::{PrimitiveStyleBuilder},
     text::{Alignment, LineHeight, Text, TextStyleBuilder},
     image::{Image, ImageRaw},
 };
@@ -36,6 +36,59 @@ use esp_hal::{
 };
 use esp_println::println;
 
+// --- Touch (FT3168) ---
+use embedded_hal_bus::{i2c, util::AtomicCell};
+use ft3x68_rs::{Ft3x68Driver, FT3168_DEVICE_ADDRESS, ResetInterface, TouchState};
+
+// Minimal reset driver for FT3168 via TCA9554 (addr 0x20).
+// Adjust the bitmask if your wiring differs; here we toggle P2.
+
+// NOTE: Verify TOUCH_RST_BIT and TCA9554_ADDR against the Waveshare schematic.
+// Never write whole-byte constants to 0x01/0x03 or you will clobber LCD DC/BL/EN lines and blank the screen.
+pub struct TouchReset<I2C> {
+    i2c: I2C,
+}
+
+impl<I2C> TouchReset<I2C> {
+    pub fn new(i2c: I2C) -> Self { Self { i2c } }
+}
+
+impl<I2C> ResetInterface for TouchReset<I2C>
+where
+    I2C: embedded_hal::i2c::I2c,
+{
+    type Error = <I2C as embedded_hal::i2c::ErrorType>::Error;
+
+    fn reset(&mut self) -> Result<(), Self::Error> {
+        // TCA9554 registers: 0x03=CONFIG (1=input), 0x01=OUTPUT
+        // Only toggle the configured TOUCH_RST_BIT, preserve other pins.
+        const TCA9554_ADDR: u8 = 0x20;        // adjust if your expander addr differs
+        const TOUCH_RST_BIT: u8 = 1 << 2;     // adjust if reset is on a different pin
+
+        // Ensure the RESET pin is an output without changing others.
+        let mut cfg = [0u8];
+        self.i2c.write_read(TCA9554_ADDR, &[0x03], &mut cfg)?; // read CONFIG
+        let new_cfg = cfg[0] & !TOUCH_RST_BIT;                 // set bit as output (0)
+        if new_cfg != cfg[0] {
+            self.i2c.write(TCA9554_ADDR, &[0x03, new_cfg])?;
+        }
+
+        // Drive low then high: read-modify-write OUTPUT register.
+        let mut out = [0u8];
+        self.i2c.write_read(TCA9554_ADDR, &[0x01], &mut out)?; // read OUTPUT
+        let low = out[0] & !TOUCH_RST_BIT;
+        self.i2c.write(TCA9554_ADDR, &[0x01, low])?;           // reset low
+
+        let d = esp_hal::delay::Delay::new();
+        d.delay_millis(20);
+
+        let high = low | TOUCH_RST_BIT;
+        self.i2c.write(TCA9554_ADDR, &[0x01, high])?;          // reset high
+        d.delay_millis(200);
+        Ok(())
+    }
+}
+
 esp_app_desc!();
 
 const W: u32 = 368;
@@ -47,7 +100,21 @@ fn main() -> ! {
 
     // Puts the image into the firmware. One 368×448 RGB888 image is ~496 KB; RGB565 is ~330 KB.
     // If you’ll show many images, don’t embed—load from SD or SPI flash.
-    static IMG: &[u8] = include_bytes!("../assets/pic_368x448.rgb");
+    static IMG1: &[u8] = include_bytes!("../assets/rgb/pic_11_368x448.rgb");
+    static IMG2: &[u8] = include_bytes!("../assets/rgb/pic_22_368x448.rgb");
+    static IMG3: &[u8] = include_bytes!("../assets/rgb/pic_33_368x448.rgb");
+
+    // Image playlist and state
+    let images: [&[u8]; 3] = [IMG1, IMG2, IMG3];
+    let mut img_idx: usize = 0;
+    let mut prev_pressed = false; // simple edge detection
+
+    // Prebuild ImageRaw objects once at startup (avoid per-touch construction)
+    let raws: [ImageRaw<'static, Rgb888>; 3] = [
+        ImageRaw::<Rgb888>::new(images[0], W),
+        ImageRaw::<Rgb888>::new(images[1], W),
+        ImageRaw::<Rgb888>::new(images[2], W),
+    ];
 
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
 
@@ -94,8 +161,13 @@ fn main() -> ! {
     .with_sda(peripherals.GPIO15)
     .with_scl(peripherals.GPIO14);
 
-    // Initialize I2C GPIO Reset Pin for the WaveShare 1.8" AMOLED display
-    let reset = ResetDriver::new(i2c);
+    // Share the I2C bus between display reset expander and touch controller
+    let i2c_cell = AtomicCell::new(i2c);
+    let i2c_for_lcd = i2c::AtomicDevice::new(&i2c_cell);
+    let i2c_for_touch = i2c::AtomicDevice::new(&i2c_cell);
+
+    // Initialize I2C GPIO Reset Pin for the WaveShare 1.8" AMOLED display (use shared bus)
+    let reset = ResetDriver::new(i2c_for_lcd);
 
     // Initialize display driver for the Waveshare 1.8" AMOLED display
     let ws_driver = Ws18AmoledDriver::new(lcd_spi);
@@ -126,6 +198,23 @@ fn main() -> ! {
         }
     };
 
+    // --- Initialize FT3168 touch ---
+    println!("Initializing touch...");
+    let touch_reset = TouchReset::new(i2c::AtomicDevice::new(&i2c_cell));
+    let mut touch = Ft3x68Driver::new(
+        i2c_for_touch,
+        FT3168_DEVICE_ADDRESS, // usually 0x38
+        touch_reset,
+        Delay::new(),
+    );
+    if let Err(e) = touch.initialize() {
+        println!("FT3168 init failed: {:?}", e);
+    } else {
+        // optional: enable gesture mode
+        let _ = touch.set_gesture_mode(true);
+        println!("FT3168 ready");
+    }
+
     let character_style = MonoTextStyle::new(&FONT_10X20, Rgb888::WHITE);
 
     let text_style = TextStyleBuilder::new()
@@ -141,26 +230,44 @@ fn main() -> ! {
         .fill_color(Rgb888::GREEN)
         .build();
 
-    let raw = ImageRaw::<Rgb888>::new(IMG, W);
-
-    Image::new(&raw, Point::new(0, 0)).draw(&mut display).unwrap();
-
+    // Draw overlay text
     Text::with_text_style(text, Point::new(100, 100), character_style, text_style)
-            .draw(&mut display)
-            .unwrap();
+        .draw(&mut display)
+        .unwrap();
 
-    // delay.delay_millis(500);
-        // display.clear(Rgb888::BLACK).unwrap();
-
-    if let Err(e) = display.flush() {
-        println!("Error flushing display: {:?}", e);
+    // Draw initial image (index 0)
+    {
+        if let Err(_e) = Image::new(&raws[img_idx], Point::new(0, 0)).draw(&mut display) {
+            println!("Error drawing image");
+        }
+        let _ = display.flush().ok();
     }
-
-    // for col in (0..DISPLAY_SIZE.width as i32).step_by(10) {
-    //
-    // }
-
     loop {
-        delay.delay_millis(500);
+
+        // Poll touch and on a new press advance to next image
+        match touch.touch1() {
+            Ok(TouchState::Pressed(p)) => {
+                if !prev_pressed {
+                    // edge: Released -> Pressed
+                    img_idx = (img_idx + 1) % images.len();
+                    if let Err(_e) = Image::new(&raws[img_idx], Point::new(0, 0)).draw(&mut display) {
+                        println!("Error drawing image");
+                    }
+                    // bit shit, but will do7
+                    if let Err(e) = display.flush() {
+                        println!("Error flushing display {:?}", e);
+                    }
+                }
+                prev_pressed = true;
+            }
+            Ok(TouchState::Released) => {
+                prev_pressed = false;
+            }
+            Err(_e) => {
+                // ignore transient I2C errors
+            }
+        }
+
+        delay.delay_millis(10);
     }
 }
