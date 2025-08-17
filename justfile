@@ -4,24 +4,36 @@
 default:
     @just --list
 
-# Convert and resize image for SH8601 display (368x448 RGB format)
-resizeImage input="Cool_Dude.png":
+# Convert and resize images for SH8601 display (368x448 RGB format)
+resizeImages:
     #!/usr/bin/env bash
     set -euo pipefail
+    shopt -s nullglob
 
-    # Check if input file exists
-    if [[ ! -f "assets/png/{{input}}" ]]; then
-        echo "Error: File assets/png/{{input}} not found!"
-        echo "Available files in assets/png/:"
-        ls -la assets/png/ || echo "assets/png/ directory not found"
+    mkdir -p assets/rgb
+
+    files=(assets/png/*.{png,PNG,jpg,JPG,jpeg,JPEG})
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "No images found in assets/png/ (looking for .png/.jpg/.jpeg)."
         exit 1
     fi
 
-    echo "Converting {{input}} to 368x448 RGB format..."
-    magick assets/png/{{input}} -resize 368x448\! -strip -depth 8 rgb:assets/pic_368x448.rgb
+    idx=1
+    for f in "${files[@]}"; do
+        base="$(basename "$f")"
+        out="assets/rgb/pic_${idx}_368x448.rgb"
+        echo "Converting $base -> ${out}"
+        magick "$f" -resize 368x448\! -strip -depth 8 rgb:"$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+        idx=$((idx+1))
+    done
 
-    echo "✅ Successfully converted {{input}} to assets/pic_368x448.rgb"
-    echo "File size: $(du -h assets/pic_368x448.rgb | cut -f1)"
+    echo "✅ Done. Converted ${#files[@]} image(s) to assets/rgb/"
 
 # Build and run the example on the ESP32-S3
 run:
