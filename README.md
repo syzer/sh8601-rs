@@ -1,3 +1,31 @@
+# WAT 
+Create and displays caricature gallery
+![Cool_Dude.png](docs/Cool_Dude.png)
+
+# HOW
+
+```bash
+cargo run --example ws_18in_amoled --features "waveshare_18_amoled"
+```
+or better
+```
+cargo install just
+```
+
+```
+just resizeImage
+just run
+```
+
+# TODO
+connect:
+https://github.com/lllyasviel/ControlNet
+https://huggingface.co/docs/diffusers/en/using-diffusers/controlnet?usage=text-to-image
+https://docs.comfy.org/tutorials/controlnet/controlnet
+
+
+
+====
 # SH8601 Driver Crate
 
 An embedded-graphics compatible driver for the SH8601 AMOLED display controller IC.

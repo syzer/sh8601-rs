@@ -11,10 +11,11 @@ use embedded_graphics::{
         ascii::{FONT_10X20, FONT_6X10},
         MonoTextStyle,
     },
-    pixelcolor::Rgb888,
+    pixelcolor::{Rgb888,Rgb565},
     prelude::*,
     primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
     text::{Alignment, LineHeight, Text, TextStyleBuilder},
+    image::{Image, ImageRaw},
 };
 
 extern crate alloc;
@@ -37,9 +38,16 @@ use esp_println::println;
 
 esp_app_desc!();
 
+const W: u32 = 368;
+const H: u32 = 448;
+
 #[main]
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
+
+    // Puts the image into the firmware. One 368×448 RGB888 image is ~496 KB; RGB565 is ~330 KB.
+    // If you’ll show many images, don’t embed—load from SD or SPI flash.
+    static IMG: &[u8] = include_bytes!("../assets/pic_368x448.rgb");
 
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
 
@@ -125,45 +133,32 @@ fn main() -> ! {
         .alignment(Alignment::Center)
         .build();
 
-    let text = "Hello, Waveshare 1.8\" AMOLED Display!";
+    let text = "Cow Enabled!";
 
-    // Triangle::new(Point::new(20, 50), Point::new(50, 5), Point::new(80, 50))
-    //     .into_styled(
-    //         PrimitiveStyleBuilder::new()
-    //             .stroke_color(Rgb888::CSS_GOLD)
-    //             .stroke_width(5)
-    //             .fill_color(Rgb888::BLUE)
-    //             .build(),
-    //     )
-    //     .draw(&mut display)
-    //     .unwrap();
+    let style = PrimitiveStyleBuilder::new()
+        .stroke_color(Rgb888::RED)
+        .stroke_width(3)
+        .fill_color(Rgb888::GREEN)
+        .build();
 
-    // let style = PrimitiveStyleBuilder::new()
-    //     .stroke_color(Rgb565::RED)
-    //     .stroke_width(3)
-    //     .fill_color(Rgb565::GREEN)
-    //     .build();
+    let raw = ImageRaw::<Rgb888>::new(IMG, W);
 
-    // Rectangle::new(Point::new(30, 30), Size::new(150, 150))
-    //     .into_styled(style)
-    //     .draw(&mut display)
-    //     .unwrap();
+    Image::new(&raw, Point::new(0, 0)).draw(&mut display).unwrap();
 
-    // Circle::new(Point::new(50, 100), 5)
-    //     .into_styled(PrimitiveStyle::with_fill(Rgb888::RED))
-    //     .draw(&mut display)
-    //     .unwrap();
-
-    for col in (0..DISPLAY_SIZE.width as i32).step_by(10) {
-        Text::with_text_style(text, Point::new(col, 100), character_style, text_style)
+    Text::with_text_style(text, Point::new(100, 100), character_style, text_style)
             .draw(&mut display)
             .unwrap();
-        if let Err(e) = display.flush() {
-            println!("Error flushing display: {:?}", e);
-        }
-        delay.delay_millis(500);
-        display.clear(Rgb888::BLACK).unwrap();
+
+    // delay.delay_millis(500);
+        // display.clear(Rgb888::BLACK).unwrap();
+
+    if let Err(e) = display.flush() {
+        println!("Error flushing display: {:?}", e);
     }
+
+    // for col in (0..DISPLAY_SIZE.width as i32).step_by(10) {
+    //
+    // }
 
     loop {
         delay.delay_millis(500);
