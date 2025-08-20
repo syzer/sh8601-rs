@@ -1,7 +1,7 @@
 # WAT 
 Create and displays caricature gallery
 ![Cool_Dude.png](docs/Cool_Dude.png)
-[![Demo](docs/Cool_Dude.png)](docs/V_20250817_182319_ES3.mp4)
+![docs/V_20250817_182319_ES3.mp4](docs/V_20250817_182319_ES3.mp4)
 # HOW
 
 ```bash
