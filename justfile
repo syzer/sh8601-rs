@@ -42,6 +42,138 @@ run:
 release:
     cargo run --example ws_18in_amoled --features "waveshare_18_amoled" --release
 
+# Run the movie player example
+run-movies:
+    cargo run --example movie_player --features "waveshare_18_amoled"
+
+run-movies-release:
+    cargo run --example movie_player --features "waveshare_18_amoled" --release
+
+resizeMovies:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    mkdir -p assets/rgb
+    
+    for f in assets/mp4/*.mp4; do
+        if [[ ! -f "$f" ]]; then
+            echo "No MP4 files found in assets/mp4/"
+            exit 1
+        fi
+        base="$(basename "$f" .mp4)"
+        out="assets/rgb/${base}_368x448_rgb565.raw"
+        echo "Converting $f -> $out (resized to 368x448, RGB565 format)"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -pix_fmt rgb565le -f rawvideo "$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+    done
+    
+    echo "✅ Done. Converted MP4(s) to RGB565 format in assets/rgb/"
+
+resizeMoviesTiny:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    mkdir -p assets/rgb
+    
+    for f in assets/mp4/*.mp4; do
+        if [[ ! -f "$f" ]]; then
+            echo "No MP4 files found in assets/mp4/"
+            exit 1
+        fi
+        base="$(basename "$f" .mp4)"
+        out="assets/rgb/${base}_tiny_rgb565.raw"
+        echo "Converting $f -> $out (first 5 frames, RGB565 format for testing)"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -vframes 5 -pix_fmt rgb565le -f rawvideo "$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+    done
+    
+    echo "✅ Done. Converted MP4(s) to tiny RGB565 test files in assets/rgb/"
+
+resizeMoviesSmall:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    mkdir -p assets/rgb
+    
+    for f in assets/mp4/*.mp4; do
+        if [[ ! -f "$f" ]]; then
+            echo "No MP4 files found in assets/mp4/"
+            exit 1
+        fi
+        base="$(basename "$f" .mp4)"
+        out="assets/rgb/${base}_small_rgb565.raw"
+        echo "Converting $f -> $out (first 15 frames, RGB565 format for testing)"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -vframes 15 -pix_fmt rgb565le -f rawvideo "$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+    done
+    
+    echo "✅ Done. Converted MP4(s) to small RGB565 test files in assets/rgb/"
+
+resizeMoviesSmallRgb888:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    mkdir -p assets/rgb
+    
+    for f in assets/mp4/*.mp4; do
+        if [[ ! -f "$f" ]]; then
+            echo "No MP4 files found in assets/mp4/"
+            exit 1
+        fi
+        base="$(basename "$f" .mp4)"
+        out="assets/rgb/${base}_small_rgb888.raw"
+        echo "Converting $f -> $out (first 15 frames, RGB888 format for testing)"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -vframes 15 -pix_fmt rgb24 -f rawvideo "$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+    done
+    
+    echo "✅ Done. Converted MP4(s) to small RGB888 test files in assets/rgb/"
+
+resizeMoviesMedium:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    mkdir -p assets/rgb
+    
+    for f in assets/mp4/*.mp4; do
+        if [[ ! -f "$f" ]]; then
+            echo "No MP4 files found in assets/mp4/"
+            exit 1
+        fi
+        base="$(basename "$f" .mp4)"
+        out="assets/rgb/${base}_medium_rgb565.raw"
+        echo "Converting $f -> $out (60 frames, RGB565 format - should fit in flash)"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -vframes 60 -pix_fmt rgb565le -f rawvideo "$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+    done
+    
+    echo "✅ Done. Converted MP4(s) to medium RGB565 files in assets/rgb/"
+
 # Clean build artifacts
 clean:
     cargo clean
