@@ -10,6 +10,7 @@ target/
 *.pdb
 assets/png
 assets/rgb
+assets/mp4/
 .idea/
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

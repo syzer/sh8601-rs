@@ -7,7 +7,7 @@ use sh8601_rs::{
 };
 
 use embedded_graphics::{
-    pixelcolor::Rgb888,
+    pixelcolor::Rgb565,
     prelude::*,
     image::{Image, ImageRaw},
 };
@@ -97,9 +97,11 @@ impl Movie {
             return None;
         }
         
-        let frame_size = (W * H * 2) as usize; // RGB565 = 2 bytes per pixel (input data)
-        let start = index * frame_size;
-        let end = start + frame_size;
+        let width = W as usize;
+        let height = H as usize;
+        let frame_size = width.checked_mul(height)?.checked_mul(2)?; // RGB565 = 2 bytes per pixel
+        let start = index.checked_mul(frame_size)?;
+        let end = start.checked_add(frame_size)?;
         
         if end <= self.data.len() {
             Some(&self.data[start..end])
@@ -108,51 +110,6 @@ impl Movie {
         }
     }
 
-    // Convert RGB565 frame data to RGB888 for display
-    fn get_frame_rgb888(&self, index: usize, buffer: &mut [u8]) -> Option<()> {
-        if let Some(rgb565_data) = self.get_frame(index) {
-            let width = W as usize;
-            let height = H as usize;
-            let expected_size = width.checked_mul(height)?.checked_mul(3)?; // RGB888 = 3 bytes per pixel (output)
-            if buffer.len() < expected_size {
-                return None;
-            }
-
-            let total_pixels = width.checked_mul(height)?;
-
-            // Convert RGB565 to RGB888
-            for i in 0..total_pixels {
-                let rgb565_idx = i.checked_mul(2)?;
-                let rgb888_idx = i.checked_mul(3)?;
-
-                if rgb565_idx + 1 < rgb565_data.len() && rgb888_idx + 2 < buffer.len() {
-                    // Read RGB565 (little-endian)
-                    let rgb565 = u16::from_le_bytes([
-                        rgb565_data[rgb565_idx], 
-                        rgb565_data[rgb565_idx + 1]
-                    ]);
-
-                    // Extract RGB565 components
-                    let r5 = ((rgb565 >> 11) & 0x1F) as u8;
-                    let g6 = ((rgb565 >> 5) & 0x3F) as u8; 
-                    let b5 = (rgb565 & 0x1F) as u8;
-
-                    // Convert to RGB888 (expand bit depth)
-                    let r8 = (r5 * 255 / 31) as u8;
-                    let g8 = (g6 * 255 / 63) as u8;
-                    let b8 = (b5 * 255 / 31) as u8;
-
-                    // Store RGB888
-                    buffer[rgb888_idx] = r8;
-                    buffer[rgb888_idx + 1] = g8;
-                    buffer[rgb888_idx + 2] = b8;
-                }
-            }
-            Some(())
-        } else {
-            None
-        }
-    }
 }
 
 // Include the movie data (tiny test versions with 5 frames)
@@ -215,14 +172,14 @@ fn main() -> ! {
     const DISPLAY_SIZE: DisplaySize = DisplaySize::new(368, 448);
 
     // Calculate framebuffer size based on the display size and color mode
-    const FB_SIZE: usize = framebuffer_size(DISPLAY_SIZE, ColorMode::Rgb888);
+    const FB_SIZE: usize = framebuffer_size(DISPLAY_SIZE, ColorMode::Rgb565);
 
     // Instantiate and Initialize Display
     println!("Initializing SH8601 Display...");
     let display_res = Sh8601Driver::new_heap::<_, FB_SIZE>(
         ws_driver,
         reset,
-        ColorMode::Rgb888,
+        ColorMode::Rgb565,
         DISPLAY_SIZE,
         delay,
     );
@@ -265,15 +222,6 @@ fn main() -> ! {
     let mut frame_counter = 0u32;
     let mut prev_pressed = false;
 
-    // Buffer for RGB888 conversion (allocated once, reused for each frame)
-    extern crate alloc;
-    use alloc::vec::Vec;
-    let width = W as usize;
-    let height = H as usize;
-    let buffer_size = width * height * 3; // RGB888 = 3 bytes per pixel
-    let mut rgb888_buffer = Vec::with_capacity(buffer_size);
-    rgb888_buffer.resize(buffer_size, 0);
-
     loop {
         // Check touch input for movie switching
         match touch.touch1() {
@@ -296,10 +244,10 @@ fn main() -> ! {
 
         // Animate at ~24fps (every 4th loop iteration at 10ms = ~25fps)
         if frame_counter % 4 == 0 {
-            // Convert RGB565 frame to RGB888 and display
-            if movies[current_movie].get_frame_rgb888(current_frame, &mut rgb888_buffer).is_some() {
-                // Create ImageRaw from converted RGB888 data
-                let raw_image = ImageRaw::<Rgb888>::new(&rgb888_buffer, W);
+            // Use RGB565 frame data directly - no conversion needed!
+            if let Some(frame_data) = movies[current_movie].get_frame(current_frame) {
+                // Create ImageRaw from RGB565 data
+                let raw_image = ImageRaw::<Rgb565>::new(frame_data, W);
                 let image = Image::new(&raw_image, Point::new(0, 0));
                 
                 // Draw the image

@@ -42,12 +42,23 @@ run:
 release:
     cargo run --example ws_18in_amoled --features "waveshare_18_amoled" --release
 
-# Run the movie player example
+# Run the movie player example with RGB565 (33% memory savings)
+run-movies-rgb565:
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb565"
+
+# Run the movie player example with RGB888 (default)
+run-movies-rgb888:
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb888"
+
+# Run the movie player example (defaults to RGB565 for efficiency)
 run-movies:
-    cargo run --example movie_player --features "waveshare_18_amoled"
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb565"
 
 run-movies-release:
-    cargo run --example movie_player --features "waveshare_18_amoled" --release
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb565" --release
+
+run-movies-rgb888-release:
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb888" --release
 
 resizeMovies:
     #!/usr/bin/env bash

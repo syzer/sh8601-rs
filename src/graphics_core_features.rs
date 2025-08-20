@@ -1,4 +1,5 @@
 use crate::{ControllerInterface, DrawTarget, ResetInterface, Sh8601Driver};
+use embedded_graphics_core::prelude::*;
 
 // Feature flags to choose color mode at compile time
 #[cfg(feature = "rgb565")]
@@ -7,11 +8,12 @@ use embedded_graphics_core::pixelcolor::Rgb565 as DisplayColor;
 #[cfg(feature = "rgb888")]
 use embedded_graphics_core::pixelcolor::Rgb888 as DisplayColor;
 
-// Default to RGB888 if no feature is specified
-#[cfg(not(any(feature = "rgb565", feature = "rgb888")))]
-use embedded_graphics_core::pixelcolor::Rgb888 as DisplayColor;
+#[cfg(feature = "gray8")]  
+use embedded_graphics_core::pixelcolor::Gray8 as DisplayColor;
 
-use embedded_graphics_core::prelude::*;
+// Default to RGB888 if no feature is specified
+#[cfg(not(any(feature = "rgb565", feature = "rgb888", feature = "gray8")))]
+use embedded_graphics_core::pixelcolor::Rgb888 as DisplayColor;
 
 impl<IFACE, RST> DrawTarget for Sh8601Driver<IFACE, RST>
 where
@@ -19,11 +21,8 @@ where
     RST: ResetInterface,
 {
     type Color = DisplayColor;
-    // Drawing to the framebuffer in memory is infallible.
-    // Errors happen during flush with SPI comms.
     type Error = core::convert::Infallible;
 
-    /// Draws a single pixel to the internal framebuffer.
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
         I: IntoIterator<Item = Pixel<Self::Color>>,
@@ -37,8 +36,7 @@ where
                 let x = coord.x as u32;
                 let y = coord.y as u32;
                 
-                // RGB888 implementation (default and explicit feature)
-                #[cfg(any(feature = "rgb888", not(any(feature = "rgb565", feature = "rgb888"))))]
+                #[cfg(any(feature = "rgb888", not(any(feature = "rgb565", feature = "rgb888", feature = "gray8"))))]
                 {
                     let index = ((y * self.config.width as u32 + x) * 3) as usize;
                     if index + 2 < self.framebuffer.len() {
@@ -49,15 +47,21 @@ where
                     }
                 }
                 
-                // RGB565 implementation
                 #[cfg(feature = "rgb565")]
                 {
                     let index = ((y * self.config.width as u32 + x) * 2) as usize;
                     if index + 1 < self.framebuffer.len() {
                         let storage = color.into_storage();
-                        // Store RGB565 in little-endian format
                         self.framebuffer[index] = storage as u8;           // Low byte
                         self.framebuffer[index + 1] = (storage >> 8) as u8; // High byte
+                    }
+                }
+                
+                #[cfg(feature = "gray8")]
+                {
+                    let index = (y * self.config.width as u32 + x) as usize;
+                    if index < self.framebuffer.len() {
+                        self.framebuffer[index] = color.luma();
                     }
                 }
             }
@@ -65,8 +69,6 @@ where
         Ok(())
     }
 }
-
-// =========== embedded-graphics OriginDimensions Implementation ===========
 
 impl<IFACE, RST> OriginDimensions for Sh8601Driver<IFACE, RST>
 where
