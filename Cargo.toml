@@ -42,6 +42,7 @@ esp-bootloader-esp-idf = { version = "0.2.0", optional = true, features = [
 ] }
 ft3x68-rs = "0.1.2"
 embedded-hal-bus = "0.3.0"
+embedded-sdmmc = { version = "0.8.0", optional = true }
 
 
 [features]
@@ -56,11 +57,20 @@ waveshare_18_amoled = [
   "esp-println/auto",
 ]
 
+## Enable SD card support for loading movies at runtime
+sdcard_movies = [
+  "dep:embedded-sdmmc",
+]
+
 ## Color format features (choose one)
 ## RGB565 format (16-bit, 2 bytes per pixel) - 33% memory savings
 rgb565 = []
 ## RGB888 format (24-bit, 3 bytes per pixel) - default quality
 rgb888 = []
+
+[[example]]
+name = "movie_player_sdcard"
+required-features = ["waveshare_18_amoled", "sdcard_movies", "rgb565"]
 
 [profile.dev]
 # Rust debug is too slow.

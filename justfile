@@ -48,6 +48,14 @@ release:
 run-movies:
     cargo run --example movie_player --features "waveshare_18_amoled,rgb565"
 
+# Run SD card movie player (debug) - loads full movies from SD card at runtime
+run-movies-sdcard:
+    cargo run --example movie_player_sdcard --features "waveshare_18_amoled,rgb565,sdcard_movies"
+
+# Run SD card movie player (RELEASE) - loads full movies from SD card at runtime
+release-movies-sdcard:
+    cargo run --example movie_player_sdcard --features "waveshare_18_amoled,rgb565,sdcard_movies" --release
+
 # Run movie player (RELEASE) - tiny movies (1.6MB each, 5 frames) 
 release-movies:
     cargo run --example movie_player --features "waveshare_18_amoled,rgb565" --release
@@ -91,6 +99,94 @@ resizeMovies:
     echo "✅ Done. Converted MP4(s) to RGB565 format in assets/rgb/"
 
 # ==================== MOVIE CONVERSION COMMANDS ====================
+
+# Convert MP4s to RGB565 format and save directly to SD card
+convertToSdCard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # SD card mount point
+    SDCARD_PATH="/Volumes/NO NAME"
+    
+    # Check if SD card is mounted
+    if [[ ! -d "$SDCARD_PATH" ]]; then
+        echo "❌ SD card not found at $SDCARD_PATH"
+        echo "Please ensure SD card is mounted. Current mounts:"
+        df -h | grep "/Volumes"
+        exit 1
+    fi
+    
+    # Create output directory on SD card
+    mkdir -p "$SDCARD_PATH/rgb565_movies"
+    
+    # Check for MP4 files
+    if [[ ! -d "assets/mp4" ]] || [[ -z "$(ls -A assets/mp4/*.mp4 2>/dev/null)" ]]; then
+        echo "❌ No MP4 files found in assets/mp4/"
+        echo "Please add your MP4 files to assets/mp4/ directory first"
+        exit 1
+    fi
+    
+    echo "🎬 Converting MP4s to RGB565 format for ESP32-S3 display..."
+    echo "📀 Target: $SDCARD_PATH/rgb565_movies/"
+    echo ""
+    
+    for f in assets/mp4/*.mp4; do
+        base="$(basename "$f" .mp4)"
+        
+        # Different size options
+        full_out="$SDCARD_PATH/rgb565_movies/${base}_full_rgb565.raw"
+        
+        echo "🎥 Processing: $f"
+        
+        # Full length - entire video
+        echo "  → Full length: ${base}_full_rgb565.raw"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -pix_fmt rgb565le -f rawvideo "$full_out" 2>/dev/null
+        echo "    ✓ $(du -h "$full_out" | cut -f1)"
+        
+        echo ""
+    done
+    
+    echo "✅ Done! All movies converted to RGB565 format"
+    echo "📊 SD Card usage:"
+    du -sh "$SDCARD_PATH/rgb565_movies"
+    echo ""
+    echo "📋 Available files:"
+    ls -lh "$SDCARD_PATH/rgb565_movies/"
+    echo ""
+    echo "💡 Usage tips:"
+    echo "  - Tiny files: Best for testing, fits easily in 16MB flash"
+    echo "  - Small files: Good balance of size vs animation"
+    echo "  - Medium files: Longer animations, may need memory optimization"
+    echo "  - Full files: Complete videos, likely too big for flash"
+
+# Check SD card status and list converted movies
+checkSdCard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    SDCARD_PATH="/Volumes/NO NAME"
+    
+    if [[ ! -d "$SDCARD_PATH" ]]; then
+        echo "❌ SD card not found at $SDCARD_PATH"
+        echo "Current mounted volumes:"
+        ls -la /Volumes/ || true
+        exit 1
+    fi
+    
+    echo "📀 SD Card Status:"
+    df -h "$SDCARD_PATH"
+    echo ""
+    
+    if [[ -d "$SDCARD_PATH/rgb565_movies" ]]; then
+        echo "🎬 Converted RGB565 Movies:"
+        ls -lh "$SDCARD_PATH/rgb565_movies/"
+        echo ""
+        echo "📊 Total movie storage used:"
+        du -sh "$SDCARD_PATH/rgb565_movies"
+    else
+        echo "📂 No RGB565 movies found. Run 'just convertToSdCard' to create them."
+    fi
+
 
 # Create different sized movies for memory optimization
 resizeMoviesTiny:
