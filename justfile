@@ -42,19 +42,24 @@ run:
 release:
     cargo run --example ws_18in_amoled --features "waveshare_18_amoled" --release
 
-# Run the movie player example with RGB565 (33% memory savings)
-run-movies-rgb565:
-    cargo run --example movie_player --features "waveshare_18_amoled,rgb565"
+# ==================== MOVIE PLAYER COMMANDS ====================
 
-# Run the movie player example with RGB888 (default)
-run-movies-rgb888:
-    cargo run --example movie_player --features "waveshare_18_amoled,rgb888"
-
-# Run the movie player example (defaults to RGB565 for efficiency)
+# Run movie player (debug) - tiny movies (1.6MB each, 5 frames)
 run-movies:
     cargo run --example movie_player --features "waveshare_18_amoled,rgb565"
 
-run-movies-release:
+# Run movie player (RELEASE) - tiny movies (1.6MB each, 5 frames) 
+release-movies:
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb565" --release
+
+# Run movie player with different color formats
+run-movies-rgb565:
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb565"
+
+run-movies-rgb888:
+    cargo run --example movie_player --features "waveshare_18_amoled,rgb888"
+
+run-movies-rgb565-release:
     cargo run --example movie_player --features "waveshare_18_amoled,rgb565" --release
 
 run-movies-rgb888-release:
@@ -85,6 +90,9 @@ resizeMovies:
     
     echo "✅ Done. Converted MP4(s) to RGB565 format in assets/rgb/"
 
+# ==================== MOVIE CONVERSION COMMANDS ====================
+
+# Create different sized movies for memory optimization
 resizeMoviesTiny:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -109,6 +117,7 @@ resizeMoviesTiny:
     done
     
     echo "✅ Done. Converted MP4(s) to tiny RGB565 test files in assets/rgb/"
+    echo "📊 Total size: $(du -sh assets/rgb/*tiny*.raw | awk '{sum+=$1} END {print sum "MB"}')"
 
 resizeMoviesSmall:
     #!/usr/bin/env bash
