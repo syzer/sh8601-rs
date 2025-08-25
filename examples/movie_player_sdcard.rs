@@ -34,8 +34,8 @@ use esp_hal::{
     time::Rate,
 };
 use esp_println::println;
-
-use zune_jpeg::JpegDecoder;
+use xtensa_lx::timer::get_cycle_count;
+use trezor_tjpgdec::{JDEC, JpegInput, JpegOutput, BufferInput, Error as TjError};
 
 // --- Touch (FT3168) ---
 use embedded_hal_bus::{i2c, util::AtomicCell};
@@ -142,7 +142,16 @@ const RAW_H: u32 = 448;
 // Tunables
 const LCD_SPI_MHZ: u32 = 80; // SPI2 (QSPI panel link)
 const SD_SPI_MHZ: u32  = 48; // SPI3 (SD card link)
+// Decoder downscale: 0=full, 1=1/2, 2=1/4, 3=1/8
+const DECODE_SCALE: u8 = 0;
 // const SD_SPI_MHZ: u32  = 28; // SPI3 (SD card link)
+
+// CPU core frequency used to convert cycles -> time (adjust if you run at a different clock)
+const CPU_HZ: u32 = 240_000_000; // 240 MHz typical for ESP32-S3
+#[inline(always)]
+fn cycles_to_us(cycles: u32) -> u32 {
+    ((cycles as u64 * 1_000_000u64) / CPU_HZ as u64) as u32
+}
 
 esp_app_desc!();
 
@@ -170,16 +179,32 @@ fn index_jpegs(buf: &[u8], max_frames: usize) -> alloc::vec::Vec<(usize,usize)> 
     out
 }
 
-/// Pack RGB888 bytes into RGB565 words (big-endian 16bpp expected by driver)
-fn rgb888_to_rgb565_be(src: &[u8], dst: &mut [u16]) {
-    // src len must be 3*w*h, dst len must be w*h
-    for (pix, chunk) in dst.iter_mut().zip(src.chunks_exact(3)) {
-        let r = chunk[0] as u16;
-        let g = chunk[1] as u16;
-        let b = chunk[2] as u16;
-        // 5-6-5 packing
-        let v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-        *pix = v; // store as native u16; driver will send big-endian on wire
+
+/// Accumulator that writes TJpgDec RGB565 tiles into a linear framebuffer
+struct FrameAccum<'a> {
+    fb: &'a mut [u16],
+    stride: u32, // pixels per line
+}
+
+impl<'a> JpegOutput for FrameAccum<'a> {
+    fn write(
+        &mut self,
+        _jd: &JDEC,
+        rect_origin: (u32, u32),
+        rect_size: (u32, u32),
+        pixels: &[u16],
+    ) -> bool {
+        let (x, y) = rect_origin;
+        let (w, h) = rect_size;
+        // copy row by row into framebuffer
+        for row in 0..h as usize {
+            let dst_off = ((y as usize + row) * self.stride as usize) + x as usize;
+            let src_off = row * w as usize;
+            let dst = &mut self.fb[dst_off .. dst_off + w as usize];
+            let src = &pixels[src_off .. src_off + w as usize];
+            dst.copy_from_slice(src);
+        }
+        true
     }
 }
 
@@ -323,6 +348,7 @@ fn main() -> ! {
     let mut display = match display_res {
         Ok(d) => {
             println!("Display initialized successfully.");
+            println!("TJPG scale factor: {}", DECODE_SCALE);
             d
         }
         Err(e) => {
@@ -396,24 +422,60 @@ fn main() -> ! {
         let (s,e) = frames[fidx];
         let jpeg = &avi_buf[s..e];
 
-        // Decode JPEG → RGB24 using zune-jpeg
-        let mut dec = JpegDecoder::new(jpeg);
-        let pixels = match dec.decode() {
-            Ok(p) => p,
-            Err(_e) => { println!("JPEG decode failed; skipping frame"); fidx = (fidx+1)%frames.len(); continue; }
-        };
-        let info = match dec.info() { Some(i) => i, None => { println!("JPEG info missing"); fidx = (fidx+1)%frames.len(); continue; } };
-        if info.width as u32 != RAW_W || info.height as u32 != RAW_H { println!("Unexpected frame size {}x{}", info.width, info.height); }
+        // Decode JPEG → RGB565 directly with trezor-tjpgdec
+        let t_decode_start = get_cycle_count();
+        // TJpgDec working memory pool in DRAM (faster than PSRAM vectors)
+        let mut pool: [u8; 32 * 1024] = [0; 32 * 1024];
 
-        // Convert RGB888 → RGB565 (big-endian on wire handled by driver)
-        rgb888_to_rgb565_be(&pixels, &mut rgb565);
+        // Input provider backed by our in-memory JPEG
+        let mut input = BufferInput(jpeg);
+        let mut jd = match JDEC::new(&mut input, &mut pool) {
+            Ok(j) => j,
+            Err(_e) => { println!("JPEG init failed; skipping frame"); fidx = (fidx+1)%frames.len(); continue; }
+        };
+        // Select decoder downscale
+        let _ = jd.set_scale(DECODE_SCALE);
+
+        // Accumulate into our RGB565 framebuffer
+        let mut accum = FrameAccum { fb: &mut rgb565, stride: RAW_W };
+        let decode_res = jd.decomp(&mut accum);
+        let t_decode_end = get_cycle_count();
+        let decode_us = cycles_to_us(t_decode_end.wrapping_sub(t_decode_start));
+        if decode_res.is_err() {
+            println!("JPEG decode failed; skipping frame");
+            fidx = (fidx+1)%frames.len();
+            continue;
+        }
+        // No separate convert step anymore
+        let convert_us: u32 = 0;
 
         // Present using embedded-graphics
         let bytes: &[u8] = unsafe { core::slice::from_raw_parts(rgb565.as_ptr() as *const u8, rgb565.len()*2) };
         let raw = ImageRaw::<Rgb565>::new(bytes, RAW_W);
         let img = Image::new(&raw, Point::new(0,0));
+        let t_draw_start = get_cycle_count();
         let _ = img.draw(&mut display);
+        let t_draw_end = get_cycle_count();
+        let draw_us = cycles_to_us(t_draw_end.wrapping_sub(t_draw_start));
+
+        let t_flush_start = get_cycle_count();
         let _ = display.flush();
+        let t_flush_end = get_cycle_count();
+        let flush_us = cycles_to_us(t_flush_end.wrapping_sub(t_flush_start));
+
+        // Per-frame timing summary (in ms)
+        let decode_ms = decode_us as u32 / 1000;
+        let convert_ms = convert_us as u32 / 1000;
+        let draw_ms = draw_us as u32 / 1000;
+        let flush_ms = flush_us as u32 / 1000;
+        println!(
+            "TIMING — decode: {} ms, convert: {} ms, draw: {} ms, flush: {} ms (total: {} ms)",
+            decode_ms,
+            convert_ms,
+            draw_ms,
+            flush_ms,
+            decode_ms + convert_ms + draw_ms + flush_ms
+        );
 
         fidx = (fidx+1) % frames.len();
     }
