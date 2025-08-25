@@ -142,12 +142,16 @@ const H: u32 = 448;
 const RAW_W: u32 = W;
 const RAW_H: u32 = H;
 
+// Tunables
+const LCD_SPI_MHZ: u32 = 80; // SPI2 (QSPI panel link)
+const SD_SPI_MHZ: u32  = 48; // SPI3 (SD card link)
+
 // Derived sizes
 const FRAME_SZ: usize = (RAW_W as usize) * (RAW_H as usize) * 2; // RGB565
 
 // Stream in 64-line chunks (multiple of 512B sector size)
 const BYTES_PER_LINE: usize = (RAW_W as usize) * 2;
-const LINES_PER_CHUNK: usize = 64;
+const LINES_PER_CHUNK: usize = 96;
 const CHUNK_BYTES: usize = BYTES_PER_LINE * LINES_PER_CHUNK; // e.g. 64 lines
 
 // Ping-pong tiles for DMA-ish streaming from SD
@@ -179,7 +183,7 @@ fn main() -> ! {
     let lcd_spi = Spi::new(
         peripherals.SPI2,
         SpiConfig::default()
-            .with_frequency(Rate::from_mhz(40_u32))
+            .with_frequency(Rate::from_mhz(LCD_SPI_MHZ))
             .with_mode(Mode::_0),
     )
         .unwrap()
@@ -210,7 +214,7 @@ fn main() -> ! {
     let sd_spi = Spi::new(
         peripherals.SPI3,
         SpiConfig::default()
-            .with_frequency(Rate::from_mhz(24_u32)) // start conservative; can try 40–60 later
+            .with_frequency(Rate::from_mhz(SD_SPI_MHZ)) // start conservative; can try 40–60 later
             .with_mode(Mode::_0),
     )
         .unwrap()
@@ -227,7 +231,7 @@ fn main() -> ! {
     let sd_bus = core::cell::RefCell::new(sd_spi);
     let sd_dev = RefCellDevice::new(&sd_bus, sd_cs, Delay::new()).unwrap();
 
-    println!("APP: Probing SD (SPI3 24MHz, Mode0)...");
+    println!("APP: Probing SD (SPI3 {}MHz, Mode0)...", SD_SPI_MHZ);
     let mut sd_delay_for_card = Delay::new();
     let sd = SdCard::new(sd_dev, &mut sd_delay_for_card);
     println!("APP: SdCard::new done");
@@ -350,6 +354,7 @@ fn main() -> ! {
             let mut use_a = true;
             let mut cur_len = n0;
             let mut remaining = FRAME_SZ.saturating_sub(n0);
+            let mut poll_touch = false;
 
             // Draw and ping‑pong until frame done
             loop {
@@ -363,7 +368,17 @@ fn main() -> ! {
                 // which is true by construction of our tile.
                 let img = Image::new(&raw, Point::new(0, y0 as i32));
                 let _ = img.draw(&mut display);
-                let _ = display.flush();
+                poll_touch = !poll_touch;
+                if poll_touch {
+                    match touch.touch1() {
+                        Ok(ts) => {
+                            let is_pressed = matches!(ts, TouchState::Pressed(_));
+                            if is_pressed && !prev_pressed { advance = true; }
+                            prev_pressed = is_pressed;
+                        }
+                        Err(_) => {}
+                    }
+                }
                 y += tile_h as i32;
 
                 if remaining == 0 { break; }
@@ -377,17 +392,11 @@ fn main() -> ! {
                 cur_len = n;
                 use_a = !use_a;
 
-                // Touch edge detect to switch movies
-                match touch.touch1() {
-                    Ok(ts) => {
-                        let is_pressed = matches!(ts, TouchState::Pressed(_));
-                        if is_pressed && !prev_pressed { advance = true; }
-                        prev_pressed = is_pressed;
-                    }
-                    Err(_) => {}
-                }
                 if advance { break; }
             }
+
+            // Flush once per full frame, not per tile
+            let _ = display.flush();
 
             if advance { break; }
 
