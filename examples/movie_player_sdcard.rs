@@ -356,7 +356,7 @@ fn main() -> ! {
 
     // Cap preload (debug): 4 MiB if available, otherwise 512 KiB
     // let mut preload_cap = 4 * 1024 * 1024usize;
-    let mut preload_cap = 256 * 1024usize;
+    let mut preload_cap = 3 * 256 * 1024usize;
     if preload_cap > 4*1024*1024 { preload_cap = 4*1024*1024; }
     // Try to allocate PSRAM buffer
     let mut avi_buf: alloc::vec::Vec<u8> = alloc::vec::Vec::with_capacity(preload_cap);
