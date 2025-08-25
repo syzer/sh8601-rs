@@ -43,7 +43,7 @@ esp-bootloader-esp-idf = { version = "0.2.0", optional = true, features = [
 ft3x68-rs = "0.1.2"
 embedded-hal-bus = "0.3.0"
 embedded-sdmmc = { version = "0.9.0", optional = true }
-
+zune-jpeg = { version = "0.4.20", default-features = false }
 
 [features]
 ## Enable support for the Waveshare 1.8" AMOLED display
@@ -83,5 +83,6 @@ debug = 2
 debug-assertions = false
 incremental = false
 lto = 'fat'
-opt-level = 's'
+#opt-level = 's'
+opt-level = 3
 overflow-checks = false

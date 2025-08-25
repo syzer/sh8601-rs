@@ -35,9 +35,11 @@ use esp_hal::{
 };
 use esp_println::println;
 
+use zune_jpeg::JpegDecoder;
+
 // --- Touch (FT3168) ---
 use embedded_hal_bus::{i2c, util::AtomicCell};
-use ft3x68_rs::{Ft3x68Driver, FT3168_DEVICE_ADDRESS, ResetInterface, TouchState};
+use ft3x68_rs::{Ft3x68Driver, FT3168_DEVICE_ADDRESS, ResetInterface};
 
 // Minimal reset driver for FT3168 via TCA9554 (addr 0x20).
 pub struct TouchReset<I2C> {
@@ -134,31 +136,52 @@ impl TimeSource for DummyTime {
 }
 
 // Display/native resolution
-const W: u32 = 368;
-const H: u32 = 448;
-
-// RAW movie geometry (can be set to W/H if your RAWs match the panel)
-// Set these to match your files. For legacy C6 assets you used 172x320.
-const RAW_W: u32 = W;
-const RAW_H: u32 = H;
+const RAW_W: u32 = 368;
+const RAW_H: u32 = 448;
 
 // Tunables
 const LCD_SPI_MHZ: u32 = 80; // SPI2 (QSPI panel link)
 const SD_SPI_MHZ: u32  = 48; // SPI3 (SD card link)
-
-// Derived sizes
-const FRAME_SZ: usize = (RAW_W as usize) * (RAW_H as usize) * 2; // RGB565
-
-// Stream in 64-line chunks (multiple of 512B sector size)
-const BYTES_PER_LINE: usize = (RAW_W as usize) * 2;
-const LINES_PER_CHUNK: usize = 96;
-const CHUNK_BYTES: usize = BYTES_PER_LINE * LINES_PER_CHUNK; // e.g. 64 lines
-
-// Ping-pong tiles for DMA-ish streaming from SD
-static mut TILE_A: [u8; CHUNK_BYTES] = [0u8; CHUNK_BYTES];
-static mut TILE_B: [u8; CHUNK_BYTES] = [0u8; CHUNK_BYTES];
+// const SD_SPI_MHZ: u32  = 28; // SPI3 (SD card link)
 
 esp_app_desc!();
+
+/// Find [start,end) byte ranges for JPEG frames in an MJPEG AVI chunk
+fn index_jpegs(buf: &[u8], max_frames: usize) -> alloc::vec::Vec<(usize,usize)> {
+    let mut out = alloc::vec::Vec::new();
+    let mut i = 0;
+    while i + 3 < buf.len() && out.len() < max_frames {
+        if buf[i] == 0xFF && buf[i+1] == 0xD8 && buf[i+2] == 0xFF { // SOI + next marker
+            let start = i;
+            // search for EOI 0xFF 0xD9
+            let mut j = i+3;
+            while j + 1 < buf.len() {
+                if buf[j] == 0xFF && buf[j+1] == 0xD9 {
+                    let end = j+2;
+                    out.push((start,end));
+                    i = end; // continue after this frame
+                    break;
+                }
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Pack RGB888 bytes into RGB565 words (big-endian 16bpp expected by driver)
+fn rgb888_to_rgb565_be(src: &[u8], dst: &mut [u16]) {
+    // src len must be 3*w*h, dst len must be w*h
+    for (pix, chunk) in dst.iter_mut().zip(src.chunks_exact(3)) {
+        let r = chunk[0] as u16;
+        let g = chunk[1] as u16;
+        let b = chunk[2] as u16;
+        // 5-6-5 packing
+        let v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        *pix = v; // store as native u16; driver will send big-endian on wire
+    }
+}
 
 #[main]
 fn main() -> ! {
@@ -248,28 +271,28 @@ fn main() -> ! {
         Ok(d) => d,
         Err(e) => { println!("open_root_dir failed: {:?}", e); loop { Delay::new().delay_millis(1000); } }
     };
-    // Build playlist of 368x448 RGB565 movies only
-    const FRAME_SZ_368X448: usize = (368usize * 448usize) * 2; // 329,728 bytes per frame
-    let mut movies: alloc::vec::Vec<ShortFileName> = alloc::vec::Vec::new();
-    let mut kept = 0usize;
-    let mut skipped = 0usize;
+    // Find exactly one file: VALEN~37.AVI (skip names starting with '_')
+    let mut selected: Option<ShortFileName> = None;
+    let mut scanned = 0usize;
     let _ = root_dir.iterate_dir(|e| {
-        if !e.attributes.is_directory() && e.name.extension() == b"RAW" {
-            let sz = e.size as usize;
-            if sz >= FRAME_SZ_368X448 && (sz % FRAME_SZ_368X448) == 0 {
-                // Accept any file that matches the size/multiple, ignore name geometry
-                movies.push(e.name.clone());
-                kept += 1;
-            } else {
-                skipped += 1;
+        if !e.attributes.is_directory() && e.name.extension() == b"AVI" {
+            scanned += 1;
+            if selected.is_some() {
+                return; // already picked one
+            }
+            let base = e.name.base_name();
+            if base.get(0).copied() != Some(b'_') {
+                selected = Some(e.name.clone());
             }
         }
     });
-    if movies.is_empty() {
-        println!("No 368x448 .RAW movies found in root (kept={}, skipped={})", kept, skipped);
+
+    let Some(chosen) = selected else {
+        println!(".AVI not found in root (scanned {} entries)", scanned);
         loop { Delay::new().delay_millis(1000); }
-    }
-    println!("Found {} movie(s) at 368x448 (skipped {})", movies.len(), skipped);
+    };
+
+    println!("Playing movie (MJPEG AVI): {}", chosen);
 
     let i2c_for_lcd = i2c::AtomicDevice::new(&i2c_cell);
     let i2c_for_touch = i2c::AtomicDevice::new(&i2c_cell);
@@ -325,88 +348,73 @@ fn main() -> ! {
         println!("FT3168 ready");
     }
 
-    // Prefer a file whose base starts with "NO"; else first one
-    let mut idx: usize = 0;
-    for (i, name) in movies.iter().enumerate() {
-        if name.base_name().starts_with(b"NO") { idx = i; break; }
-    }
+    // Open and preload some/all bytes (cap to PSRAM budget for now)
+    let Ok(file) = root_dir.open_file_in_dir(&chosen, SdMode::ReadOnly) else {
+        println!("open_file_in_dir failed; sleeping");
+        loop { Delay::new().delay_millis(1000); }
+    };
 
-    println!("Playing movie: {} ({}x{} RGB565)", movies[idx], RAW_W, RAW_H);
-    let mut prev_pressed = false;
+    // Cap preload (debug): 4 MiB if available, otherwise 512 KiB
+    // let mut preload_cap = 4 * 1024 * 1024usize;
+    let mut preload_cap = 256 * 1024usize;
+    if preload_cap > 4*1024*1024 { preload_cap = 4*1024*1024; }
+    // Try to allocate PSRAM buffer
+    let mut avi_buf: alloc::vec::Vec<u8> = alloc::vec::Vec::with_capacity(preload_cap);
+    unsafe { avi_buf.set_len(0); }
 
+    let mut total = 0usize;
     loop {
-        let Ok(file) = root_dir.open_file_in_dir(&movies[idx], SdMode::ReadOnly) else {
-            println!("open_file_in_dir failed; sleeping");
-            loop { Delay::new().delay_millis(1000); }
-        };
-        let mut advance = false;
-        let mut eof = false;
-        let mut y: i32;
-
-        loop {
-            // Prefetch first tile
-            y = 0;
-            let want0 = core::cmp::min(CHUNK_BYTES, FRAME_SZ);
-            let n0 = match file.read(unsafe { &mut TILE_A[..want0] }) { Ok(n) => n, Err(e) => { println!("Read error: {:?}", e); advance = true; 0 } };
-            if n0 == 0 { eof = true; break; }
-            if n0 % BYTES_PER_LINE != 0 { println!("Unaligned tile ({} B)", n0); advance = true; break; }
-
-            let mut use_a = true;
-            let mut cur_len = n0;
-            let mut remaining = FRAME_SZ.saturating_sub(n0);
-            let mut poll_touch = false;
-
-            // Draw and ping‑pong until frame done
-            loop {
-                let (ptr, len) = if use_a { (unsafe { &TILE_A[..cur_len] }, cur_len) } else { (unsafe { &TILE_B[..cur_len] }, cur_len) };
-                let y0 = y as u16;
-                // Draw chunk at (0, y)
-                let tile_h = (len / BYTES_PER_LINE) as u32;
-                let raw = ImageRaw::<Rgb565>::new(ptr, RAW_W);
-                // Draw only the first `tile_h` rows by slicing the buffer accordingly
-                // ImageRaw consumes the whole slice; ensure `len` equals RAW_W * tile_h * 2
-                // which is true by construction of our tile.
-                let img = Image::new(&raw, Point::new(0, y0 as i32));
-                let _ = img.draw(&mut display);
-                poll_touch = !poll_touch;
-                if poll_touch {
-                    match touch.touch1() {
-                        Ok(ts) => {
-                            let is_pressed = matches!(ts, TouchState::Pressed(_));
-                            if is_pressed && !prev_pressed { advance = true; }
-                            prev_pressed = is_pressed;
-                        }
-                        Err(_) => {}
-                    }
-                }
-                y += tile_h as i32;
-
-                if remaining == 0 { break; }
-                // Read next tile into the other buffer
-                let want = core::cmp::min(CHUNK_BYTES, remaining);
-                let dst = if use_a { unsafe { &mut TILE_B[..want] } } else { unsafe { &mut TILE_A[..want] } };
-                let n = match file.read(dst) { Ok(n) => n, Err(e) => { println!("Read error: {:?}", e); advance = true; 0 } };
-                if n == 0 { eof = true; break; }
-                if n % BYTES_PER_LINE != 0 { println!("Unaligned tile ({} B)", n); advance = true; break; }
-                remaining -= n;
-                cur_len = n;
-                use_a = !use_a;
-
-                if advance { break; }
+        let mut chunk = [0u8; 8192];
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let want = core::cmp::min(n, preload_cap.saturating_sub(total));
+                if want == 0 { break; }
+                avi_buf.extend_from_slice(&chunk[..want]);
+                total += want;
+                if total % (256*1024) == 0 { println!("  preloading... {} KiB", total/1024); }
+                if total >= preload_cap { break; }
             }
-
-            // Flush once per full frame, not per tile
-            let _ = display.flush();
-
-            if advance { break; }
-
-            // If we reach here, one frame was drawn. Continue to next frame until EOF.
+            Err(e) => { println!("SD read error: {:?}", e); break; }
         }
+    }
+    let _ = file.close();
+    println!("Movie preload done: {} bytes into PSRAM", avi_buf.len());
 
-        let _ = file.close();
-        if eof || advance {
-            idx = if advance { (idx + 1) % movies.len() } else { idx };
-            println!("Next movie: {}", movies[idx]);
-        }
+    // Find JPEG frames in the preloaded data
+    let frames = index_jpegs(&avi_buf, 512);
+    println!("Indexed {} JPEG frame(s)", frames.len());
+    if frames.is_empty() { loop { Delay::new().delay_millis(1000); } }
+
+    // One-time RGB565 buffer for decoded frames
+    let mut rgb565: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
+    rgb565.resize((RAW_W as usize)*(RAW_H as usize), 0);
+
+    // Playback loop
+    let mut fidx = 0usize;
+    loop {
+        let (s,e) = frames[fidx];
+        let jpeg = &avi_buf[s..e];
+
+        // Decode JPEG → RGB24 using zune-jpeg
+        let mut dec = JpegDecoder::new(jpeg);
+        let pixels = match dec.decode() {
+            Ok(p) => p,
+            Err(_e) => { println!("JPEG decode failed; skipping frame"); fidx = (fidx+1)%frames.len(); continue; }
+        };
+        let info = match dec.info() { Some(i) => i, None => { println!("JPEG info missing"); fidx = (fidx+1)%frames.len(); continue; } };
+        if info.width as u32 != RAW_W || info.height as u32 != RAW_H { println!("Unexpected frame size {}x{}", info.width, info.height); }
+
+        // Convert RGB888 → RGB565 (big-endian on wire handled by driver)
+        rgb888_to_rgb565_be(&pixels, &mut rgb565);
+
+        // Present using embedded-graphics
+        let bytes: &[u8] = unsafe { core::slice::from_raw_parts(rgb565.as_ptr() as *const u8, rgb565.len()*2) };
+        let raw = ImageRaw::<Rgb565>::new(bytes, RAW_W);
+        let img = Image::new(&raw, Point::new(0,0));
+        let _ = img.draw(&mut display);
+        let _ = display.flush();
+
+        fidx = (fidx+1) % frames.len();
     }
 }

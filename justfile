@@ -111,8 +111,10 @@ resizeMoviesMJPEG:
         fi
         base="$(basename "$f" .mp4)"
         out="assets/mjpeg/${base}_368x448_mjpeg.avi"
-        echo "Converting $f -> $out (MJPEG, resized to 368x448)"
-        ffmpeg -y -i "$f" -vf "scale=368:448" -vcodec mjpeg -q:v 6 -an "$out"
+        echo "Converting $f -> $out (MJPEG baseline yuvj420p, 368x448, fast scaler)"
+        ffmpeg -y -i "$f" \
+          -vf "scale=368:448:flags=fast_bilinear,setsar=1" \
+          -c:v mjpeg -pix_fmt yuvj420p -q:v 6 -an -vtag MJPG "$out"
         if [[ -f "$out" ]]; then
             echo "  ✓ $(du -h "$out" | cut -f1)  $out"
         else
