@@ -98,6 +98,31 @@ resizeMovies:
     
     echo "✅ Done. Converted MP4(s) to RGB565 format in assets/rgb/"
 
+resizeMoviesMJPEG:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    mkdir -p assets/mjpeg
+
+    for f in assets/mp4/*.mp4; do
+        if [[ ! -f "$f" ]]; then
+            echo "No MP4 files found in assets/mp4/"
+            exit 1
+        fi
+        base="$(basename "$f" .mp4)"
+        out="assets/mjpeg/${base}_368x448_mjpeg.avi"
+        echo "Converting $f -> $out (MJPEG, resized to 368x448)"
+        ffmpeg -y -i "$f" -vf "scale=368:448" -vcodec mjpeg -q:v 6 -an "$out"
+        if [[ -f "$out" ]]; then
+            echo "  ✓ $(du -h "$out" | cut -f1)  $out"
+        else
+            echo "  ✗ Failed to create $out" >&2
+            exit 1
+        fi
+    done
+
+    echo "✅ Done. Converted MP4(s) to MJPEG AVI in assets/mjpeg/"
+
 # ==================== MOVIE CONVERSION COMMANDS ====================
 
 # Convert MP4s to RGB565 format and save directly to SD card
