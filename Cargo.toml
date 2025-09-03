@@ -58,6 +58,7 @@ waveshare_18_amoled = [
   "dep:esp-bootloader-esp-idf",
   "esp-println/auto",
 ]
+dualcore_decode=[]
 
 ## Enable SD card support for loading movies at runtime
 sdcard_movies = [

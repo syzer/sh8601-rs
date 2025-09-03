@@ -5,6 +5,7 @@ use sh8601_rs::{
     framebuffer_size, ColorMode, DisplaySize, ResetDriver, Sh8601Driver, Ws18AmoledDriver,
     DMA_CHUNK_SIZE,
 };
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use embedded_graphics::{
     pixelcolor::Rgb565,
@@ -33,6 +34,10 @@ use esp_hal::{
     },
     time::Rate,
 };
+
+#[cfg(feature = "dualcore_decode")]
+use esp_hal::multi_core::{MultiCore, Stack};
+
 use esp_println::println;
 use xtensa_lx::timer::get_cycle_count;
 use trezor_tjpgdec::{JDEC, JpegInput, JpegOutput, BufferInput, Error as TjError};
@@ -144,7 +149,15 @@ const LCD_SPI_MHZ: u32 = 80; // SPI2 (QSPI panel link)
 const SD_SPI_MHZ: u32  = 48; // SPI3 (SD card link)
 // Decoder downscale: 0=full, 1=1/2, 2=1/4, 3=1/8
 const DECODE_SCALE: u8 = 0;
+/// How many decoded frame buffers to rotate (software pipeline)
+const PIPE_BUFFERS: usize = 2; // double-buffer
 // const SD_SPI_MHZ: u32  = 28; // SPI3 (SD card link)
+
+// NOTE: This double-buffer pipeline is structured so the `decode_into_rgb565`
+// call can be moved to the second core. On ESP32-S3, you can spawn a task on
+// PRO CPU which fills `back_fb` while APP CPU is drawing `front_fb`, and then
+// use a pair of atomics to publish readiness and swap. The rest of the code
+// (buffer rotation) remains the same.
 
 // CPU core frequency used to convert cycles -> time (adjust if you run at a different clock)
 const CPU_HZ: u32 = 240_000_000; // 240 MHz typical for ESP32-S3
@@ -154,6 +167,18 @@ fn cycles_to_us(cycles: u32) -> u32 {
 }
 
 esp_app_desc!();
+
+// --- Simple lock-free mailbox for dual-core decode (optional) ---
+// Protocol:
+//   DECODE_REQ  = usize::MAX  -> idle, no request
+//   otherwise   = (frame_index >> 1) | (buf_idx & 1) in LSB
+//   DECODE_READY mirrors the last completed request value.
+static DECODE_REQ: AtomicUsize = AtomicUsize::new(usize::MAX);
+static DECODE_READY: AtomicUsize = AtomicUsize::new(usize::MAX);
+static CORE1_ALIVE: AtomicBool = AtomicBool::new(false);
+
+#[cfg(feature = "dualcore_decode")]
+static mut CORE1_STACK: Stack<8192> = Stack::new();
 
 /// Find [start,end) byte ranges for JPEG frames in an MJPEG AVI chunk
 fn index_jpegs(buf: &[u8], max_frames: usize) -> alloc::vec::Vec<(usize,usize)> {
@@ -412,22 +437,67 @@ fn main() -> ! {
     println!("Indexed {} JPEG frame(s)", frames.len());
     if frames.is_empty() { loop { Delay::new().delay_millis(1000); } }
 
-    // One-time RGB565 buffer for decoded frames
-    let mut rgb565: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
-    rgb565.resize((RAW_W as usize)*(RAW_H as usize), 0);
+    // ---- Simple software pipeline (double-buffer) ----
+    // We keep two RGB565 frame buffers and decode the next frame into the "back" buffer
+    // while we are drawing the "front" buffer. This is single-core but reduces latency
+    // between frames and prepares the structure for true dual-core offload.
+    let frame_pixels = (RAW_W as usize) * (RAW_H as usize);
 
-    // Playback loop
-    let mut fidx = 0usize;
-    loop {
-        let (s,e) = frames[fidx];
-        let jpeg = &avi_buf[s..e];
+    // Allocate two RGB565 frame buffers in PSRAM
+    let mut fb0: alloc::vec::Vec<u16> = alloc::vec::Vec::with_capacity(frame_pixels);
+    let mut fb1: alloc::vec::Vec<u16> = alloc::vec::Vec::with_capacity(frame_pixels);
+    unsafe { fb0.set_len(frame_pixels); }
+    unsafe { fb1.set_len(frame_pixels); }
+
+    // Leak to 'static so the second core can access the buffers safely
+    let fb0_static: &'static mut [u16] = Box::leak(fb0.into_boxed_slice());
+    let fb1_static: &'static mut [u16] = Box::leak(fb1.into_boxed_slice());
+
+    // Keep lightweight handles referencing the same memory for the display core
+    let mut fb0_view: &mut [u16] = fb0_static;
+    let mut fb1_view: &mut [u16] = fb1_static;
+
+    // Spawn decoder on core1 (optional, behind feature flag)
+    #[cfg(feature = "dualcore_decode")]
+    {
+        let mut mc = MultiCore::new(peripherals.CPU_CONTROL);
+        mc.spawn_core(
+            unsafe { &mut CORE1_STACK },
+            move || {
+                CORE1_ALIVE.store(true, Ordering::Release);
+                loop {
+                    // wait for a request
+                    let req = DECODE_REQ.load(Ordering::Acquire);
+                    if req == usize::MAX {
+                        continue;
+                    }
+                    // decode request format: (frame_index << 1) | buf_idx
+                    let buf_idx = req & 1;
+                    let frame_idx = req >> 1;
+
+                    // Bounds check
+                    // NOTE: frames/avi_buf were captured by move; they must be 'static or immutable.
+                    if let Some((s, e)) = frames.get(frame_idx).copied() {
+                        let target: &mut [u16] = if buf_idx == 0 { fb0_static } else { fb1_static };
+                        let _ = decode_into_rgb565(&avi_buf[s..e], target);
+                        DECODE_READY.store(req, Ordering::Release);
+                        // Mark slot as free
+                        DECODE_REQ.store(usize::MAX, Ordering::Release);
+                    } else {
+                        // invalid frame index, drop request
+                        DECODE_READY.store(usize::MAX, Ordering::Release);
+                        DECODE_REQ.store(usize::MAX, Ordering::Release);
+                    }
+                }
+            },
+        )
+        .expect("Failed to start APP core");
+    }
 
         // Decode JPEG → RGB565 directly with trezor-tjpgdec
         let t_decode_start = get_cycle_count();
         // TJpgDec working memory pool in DRAM (faster than PSRAM vectors)
         let mut pool: [u8; 32 * 1024] = [0; 32 * 1024];
-
-        // Input provider backed by our in-memory JPEG
         let mut input = BufferInput(jpeg);
         let mut jd = match JDEC::new(&mut input, &mut pool) {
             Ok(j) => j,
