@@ -8,8 +8,10 @@ target/
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
-assets/png
-assets/rgb
+assets/png/
+assets/rgb/
+assets/mp4/
+assets/mjpeg/
 .idea/
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

@@ -42,7 +42,10 @@ esp-bootloader-esp-idf = { version = "0.2.0", optional = true, features = [
 ] }
 ft3x68-rs = "0.1.2"
 embedded-hal-bus = "0.3.0"
-
+embedded-sdmmc = { version = "0.9.0", optional = true }
+#zune-jpeg = { version = "0.4.20", default-features = false }
+trezor-tjpgdec = "0.1.0"
+xtensa-lx = "0.12.0"
 
 [features]
 ## Enable support for the Waveshare 1.8" AMOLED display
@@ -55,6 +58,22 @@ waveshare_18_amoled = [
   "dep:esp-bootloader-esp-idf",
   "esp-println/auto",
 ]
+dualcore_decode=[]
+
+## Enable SD card support for loading movies at runtime
+sdcard_movies = [
+  "dep:embedded-sdmmc",
+]
+
+## Color format features (choose one)
+## RGB565 format (16-bit, 2 bytes per pixel) - 33% memory savings
+rgb565 = []
+## RGB888 format (24-bit, 3 bytes per pixel) - default quality
+rgb888 = []
+
+[[example]]
+name = "movie_player_sdcard"
+required-features = ["waveshare_18_amoled", "sdcard_movies", "rgb565"]
 
 [profile.dev]
 # Rust debug is too slow.
@@ -67,5 +86,6 @@ debug = 2
 debug-assertions = false
 incremental = false
 lto = 'fat'
-opt-level = 's'
+#opt-level = 's'
+opt-level = 3
 overflow-checks = false
