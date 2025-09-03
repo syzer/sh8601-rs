@@ -56,6 +56,12 @@ waveshare_18_amoled = [
   "esp-println/auto",
 ]
 
+## Color format features (choose one)
+## RGB565 format (16-bit, 2 bytes per pixel) - 33% memory savings
+rgb565 = []
+## RGB888 format (24-bit, 3 bytes per pixel) - default quality
+rgb888 = []
+
 [profile.dev]
 # Rust debug is too slow.
 # For debug builds always builds with some optimization

@@ -1,8 +1,9 @@
 fn main() {
     linker_be_nice();
 
-    // rerun if we got new images
+    // rerun if we got new images or partition table changes
     println!("cargo:rerun-if-changed=assets/rgb");
+    println!("cargo:rerun-if-changed=partitions.csv");
 
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
