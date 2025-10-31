@@ -37,17 +37,21 @@ const TILES_X: usize = ((W as usize) + TILE_SIZE - 1) / TILE_SIZE;
 const TILES_Y: usize = ((H as usize) + TILE_SIZE - 1) / TILE_SIZE;
 const MAX_DIRTY_TILES_CONST: usize = TILES_X * TILES_Y; // 23*28 = 644 for 368x448@16
 
-// Small ping-pong line buffers in DRAM0 for DMA bursts (full display width)
+// Two 4KB buffers in DRAM0 for ping-pong DMA (item 3, optimized for larger bursts)
+// 4KB = 2048 u16 pixels = 8 tiles wide (128px) or 2 full scanlines (368px × 2 = 736px)
+// Aligned to 64 bytes for cache line safety
+const DMA_BUFFER_SIZE: usize = 2048;  // 2048 pixels = 4 KB per buffer
+
 #[repr(align(64))]
 struct AlignedU16<const N: usize> { data: [u16; N] }
 
 #[allow(static_mut_refs)]
 #[link_section = ".dram0.bss"]
-static mut A: AlignedU16<{W as usize}> = AlignedU16 { data: [0; W as usize] };
+static mut A: AlignedU16<DMA_BUFFER_SIZE> = AlignedU16 { data: [0; DMA_BUFFER_SIZE] };
 
 #[allow(static_mut_refs)]
 #[link_section = ".dram0.bss"]
-static mut B: AlignedU16<{W as usize}> = AlignedU16 { data: [0; W as usize] };
+static mut B: AlignedU16<DMA_BUFFER_SIZE> = AlignedU16 { data: [0; DMA_BUFFER_SIZE] };
 
 #[main]
 fn main() -> ! {
@@ -124,6 +128,22 @@ fn main() -> ! {
     let mut frames = 0u32;
     let mut frame_idx = 0usize;
 
+    // Hot function: tile blit (item 7 - moved to IRAM for performance)
+    #[inline(always)]
+    #[link_section = ".iram1.text"]
+    fn blit_tile_hot(fb_u16: &mut [u16], tile: &[u16], tx: u8, ty: u8, fb_width: usize) {
+        let x0 = (tx as usize) * TILE_SIZE;
+        let y0 = (ty as usize) * TILE_SIZE;
+        for yy in 0..TILE_SIZE {
+            let y = y0 + yy;
+            if y >= H as usize { break; }
+            let fb_row = &mut fb_u16[y * fb_width ..];
+            let src_row = &tile[yy * TILE_SIZE .. (yy+1) * TILE_SIZE];
+            let len = core::cmp::min(TILE_SIZE, fb_width - x0);
+            fb_row[x0 .. x0 + len].copy_from_slice(&src_row[..len]);
+        }
+    }
+
     loop {
         // Clear dirty list for this frame (reuse allocation)
         dirty.clear();
@@ -133,19 +153,10 @@ fn main() -> ! {
             frame_idx,
             &mut prev_tiles,
             |tx, ty, tile| {
-                // Blit tile into fb_u16
-                let x0 = (tx as usize) * TILE_SIZE;
-                let y0 = (ty as usize) * TILE_SIZE;
-                for yy in 0..TILE_SIZE {
-                    let y = y0 + yy;
-                    if y >= H as usize { break; }
-                    let fb_row = &mut fb_u16[y * (W as usize) ..];
-                    let src_row = &tile[yy * TILE_SIZE .. (yy+1) * TILE_SIZE];
-                    let len = core::cmp::min(TILE_SIZE, (W as usize) - x0);
-                    fb_row[x0 .. x0 + len].copy_from_slice(&src_row[..len]);
-                }
+                // Item 7: Hot path - tile blitting in IRAM
+                blit_tile_hot(fb_u16, tile, tx, ty, W as usize);
                 if dirty.push((tx, ty)).is_err() {
-                    // Vec full (shouldn't happen with 400 capacity), but handle gracefully
+                    // Vec full (shouldn't happen with max capacity), but handle gracefully
                 }
             }
         );
@@ -159,6 +170,30 @@ fn main() -> ! {
         // Quick wins: sort dirty tiles (heapless Vec is fast, no heap allocations)
         dirty.sort_unstable_by(|a,b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
 
+        // Item 7: Hot path - render coalesced rectangles (in IRAM)
+        render_rectangles_hot(&mut display, fb_u16, &dirty);
+
+        frames += 1;
+        let dt_ms = t0.elapsed().as_millis();
+        if dt_ms >= 1000 {
+            let fps = (frames as f32) * 1000.0 / (dt_ms as f32);
+            println!("Frame {}  {:.1} FPS", frame_idx, fps);
+            frames = 0;
+            t0 = Instant::now();
+        }
+
+        frame_idx = (frame_idx + 1) % num_frames;
+    }
+}
+
+// Hot function: render coalesced rectangles (item 7 - moved to IRAM for performance)
+#[inline(always)]
+#[link_section = ".iram1.text"]
+fn render_rectangles_hot(
+    display: &mut Sh8601Driver<impl sh8601_rs::ControllerInterface, impl sh8601_rs::ResetInterface>,
+    fb_u16: &[u16],
+    dirty: &Vec<(u8, u8), MAX_DIRTY_TILES_CONST>,
+) {
         // Coalesce horizontally then vertically into rectangles
         let fb_w = W as usize;
         let mut i = 0usize;
@@ -222,22 +257,31 @@ fn main() -> ! {
             let rect_h = y_end - y_start + 1;
             let mut use_a = true;
 
-            // Stream rows via DMA ping-pong (A/B)
-            // RAMWR on first row, RAMWRC on the rest
+            // Stream rows via DMA ping-pong (A/B) with 4KB buffers
+            // RAMWR on first chunk, RAMWRC on subsequent chunks
+            // Larger buffers = fewer DMA calls, better throughput
             for row in 0..rect_h {
                 let y = y_start + row;
                 if y > y_end { break; }
 
-                let src = &fb_u16[y * fb_w + x_start .. y * fb_w + x_start + rect_w];
-                unsafe {
-                    let dst = if use_a { &mut A.data[..rect_w] } else { &mut B.data[..rect_w] };
-                    dst.copy_from_slice(src);
+                // Process row in chunks (now 4KB = 2048px per chunk, much larger than before)
+                let mut x_offset = 0;
+                while x_offset < rect_w {
+                    let chunk_w = core::cmp::min(DMA_BUFFER_SIZE, rect_w - x_offset);
+                    let src = &fb_u16[y * fb_w + x_start + x_offset .. y * fb_w + x_start + x_offset + chunk_w];
                     
-                    // First row of rectangle = RAMWR, subsequent rows = RAMWRC
-                    let is_first_chunk = row == 0;
-                    let _ = display.write_pixels_dma_u16(dst, is_first_chunk);
+                    unsafe {
+                        let dst = if use_a { &mut A.data[..chunk_w] } else { &mut B.data[..chunk_w] };
+                        // Copy into DRAM0 buffer, then immediately call write_pixels_dma_u16
+                        dst.copy_from_slice(src);
+                        
+                        // First chunk of first row = RAMWR, all others = RAMWRC
+                        let is_first_chunk = (row == 0) && (x_offset == 0);
+                        let _ = display.write_pixels_dma_u16(dst, is_first_chunk);
+                    }
+                    use_a = !use_a; // Ping-pong: swap buffers for next chunk
+                    x_offset += chunk_w;
                 }
-                use_a = !use_a; // Ping-pong: swap buffers for next row
             }
             // Ensure DMA is idle before changing window for next rectangle.
             // If the driver exposes a blocking flush/idle API, prefer that; otherwise this is a no-op.
@@ -252,16 +296,4 @@ fn main() -> ! {
 
             i = k; // Skip all merged rows
         }
-
-        frames += 1;
-        let dt_ms = t0.elapsed().as_millis();
-        if dt_ms >= 1000 {
-            let fps = (frames as f32) * 1000.0 / (dt_ms as f32);
-            println!("Frame {}  {:.1} FPS", frame_idx, fps);
-            frames = 0;
-            t0 = Instant::now();
-        }
-
-        frame_idx = (frame_idx + 1) % num_frames;
-    }
 }
