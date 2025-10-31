@@ -94,6 +94,82 @@ impl<'a> TileDecoder<'a> {
         ]) as usize)
     }
     
+    /// Decode a frame's tiles with a callback for each tile
+    /// Calls callback(tile_x, tile_y, tile_data) for each decoded tile
+    /// Returns number of tiles decoded
+    pub fn decode_frame_with_callback<F>(
+        &self,
+        frame_idx: usize,
+        prev_frame_tiles: &mut alloc::collections::BTreeMap<(u8, u8), alloc::vec::Vec<u8>>,
+        mut callback: F,
+    ) -> Result<usize, &'static str>
+    where
+        F: FnMut(u8, u8, &[u16]),
+    {
+        let frame_offset = self.get_frame_offset(frame_idx)?;
+        if frame_offset >= self.data.len() {
+            return Err("Frame offset out of range");
+        }
+        
+        let frame_data = &self.data[frame_offset..];
+        
+        if frame_data.len() < 2 {
+            return Err("Frame too short");
+        }
+        
+        let num_tiles = u16::from_le_bytes([frame_data[0], frame_data[1]]) as usize;
+        let mut pos = 2;
+        
+        let mut tiles_decoded = 0;
+        
+        for _ in 0..num_tiles {
+            if pos + 4 >= frame_data.len() {
+                return Err("Tile header out of bounds");
+            }
+            
+            let tile_x = frame_data[pos];
+            let tile_y = frame_data[pos + 1];
+            let tile_data_len = u16::from_le_bytes([frame_data[pos + 2], frame_data[pos + 3]]) as usize;
+            pos += 4;
+            
+            if pos + tile_data_len > frame_data.len() {
+                return Err("Tile data out of bounds");
+            }
+            
+            let compressed_tile = &frame_data[pos..pos + tile_data_len];
+            pos += tile_data_len;
+            
+            // Decode RLE-compressed tile
+            let mut tile_data = alloc::vec::Vec::<u8>::with_capacity(TILE_BYTES);
+            self.decode_rle(compressed_tile, &mut tile_data)?;
+            
+            // Convert to u16 array (native little-endian for SPI LSB-first)
+            // Tiles are stored as big-endian (MSB, LSB), but SPI sends LSB-first
+            // So we swap bytes once here: (MSB, LSB) -> (LSB, MSB) for native little-endian
+            let mut tile_u16 = alloc::vec::Vec::<u16>::with_capacity(TILE_PIXELS);
+            for i in 0..(tile_data.len() / 2).min(TILE_PIXELS) {
+                let msb = tile_data[i * 2];
+                let lsb = tile_data[i * 2 + 1];
+                // Swap bytes: (MSB, LSB) -> (LSB, MSB) for native little-endian u16
+                // SPI will send LSB first, so this becomes MSB-first on the wire
+                tile_u16.push(((lsb as u16) << 8) | (msb as u16));
+            }
+            while tile_u16.len() < TILE_PIXELS {
+                tile_u16.push(0);
+            }
+            
+            // Call callback with decoded tile data
+            callback(tile_x, tile_y, &tile_u16);
+            
+            // Store raw tile data bytes for delta encoding (v1 doesn't use it, but store for compatibility)
+            prev_frame_tiles.insert((tile_x, tile_y), tile_data);
+            
+            tiles_decoded += 1;
+        }
+        
+        Ok(tiles_decoded)
+    }
+    
     /// Decode a frame's tiles into the framebuffer
     /// Returns number of tiles decoded
     pub fn decode_frame(
