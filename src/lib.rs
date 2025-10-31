@@ -43,6 +43,9 @@
 pub mod displays;
 
 #[cfg(feature = "waveshare_18_amoled")]
+pub mod tile_decoder;
+
+#[cfg(feature = "waveshare_18_amoled")]
 pub use displays::waveshare_18_amoled::*;
 
 extern crate alloc;
@@ -92,6 +95,14 @@ pub trait ControllerInterface {
 
     /// Sends pixel data
     fn send_pixels(&mut self, pixels: &[u8]) -> Result<(), Self::Error>;
+
+    /// Sends pixel data for streaming (uses RAMWRC for continuous writes after first chunk).
+    /// If is_first_chunk is false, uses RAMWRC instead of RAMWR for continuous pixel streaming.
+    fn send_pixels_streaming(&mut self, pixels: &[u8], _is_first_chunk: bool) -> Result<(), Self::Error> {
+        // Default implementation: just call send_pixels (for backward compatibility)
+        // Note: _is_first_chunk is ignored in default impl - override this for proper streaming
+        self.send_pixels(pixels)
+    }
 
     // fn read_data(&mut self, cmd: u8, buffer: &mut [u8], read_length: u8) -> Result<(), Self::Error>;
 }
@@ -472,6 +483,65 @@ where
         self.interface
             .send_pixels(&self.framebuffer)
             .map_err(DriverError::InterfaceError)?;
+        Ok(())
+    }
+
+    /// Get mutable access to the framebuffer for direct writing.
+    /// This is useful for bulk operations like copying decoded image data.
+    pub fn framebuffer_mut(&mut self) -> &mut [u8] {
+        self.framebuffer.as_mut_slice()
+    }
+
+    /// Begin a frame write operation (for optimized video streaming).
+    /// Sets the GRAM window and prepares for pixel data streaming.
+    /// Must be followed by write_pixels_dma() calls and ended with end_frame().
+    pub fn begin_frame(&mut self, x_start: u16, y_start: u16, x_end: u16, y_end: u16) -> Result<(), DriverError<IFACE::Error, RST::Error>> {
+        // Set window once for the entire frame
+        // RAMWR will be sent by the first write_pixels_dma() call
+        self.set_window(x_start, y_start, x_end, y_end)
+    }
+
+    /// Write pixel data chunk via DMA (for frame streaming).
+    /// Must be called after begin_frame() and before end_frame().
+    /// Uses RAMWRC for continuous writes (non-first chunks).
+    pub fn write_pixels_dma(&mut self, pixels: &[u8], is_first_chunk: bool) -> Result<(), DriverError<IFACE::Error, RST::Error>> {
+        // The interface will handle chunking and use RAMWR/RAMWRC appropriately
+        // For streaming, we use RAMWRC for all chunks after the first
+        self.interface
+            .send_pixels_streaming(pixels, is_first_chunk)
+            .map_err(DriverError::InterfaceError)?;
+        Ok(())
+    }
+
+    /// Write pixel data chunk via DMA using u16 slice (for frame streaming).
+    /// More efficient than u8 slice - avoids endian conversion in hot loop.
+    /// Must be called after begin_frame() and before end_frame().
+    /// Uses RAMWRC for continuous writes (non-first chunks).
+    /// 
+    /// Note: Framebuffer should contain u16 values in native little-endian format.
+    /// SPI sends LSB-first, so native little-endian u16 becomes MSB-first on the wire.
+    #[inline(always)]
+    #[link_section = ".iram1.text"]
+    pub fn write_pixels_dma_u16(&mut self, pixels: &[u16], is_first_chunk: bool) -> Result<(), DriverError<IFACE::Error, RST::Error>> {
+        // Convert u16 slice to bytes - SPI sends LSB-first, so native little-endian u16
+        // becomes MSB-first on wire (correct for display expecting big-endian RGB565)
+        let pixels_bytes: &[u8] = unsafe {
+            core::slice::from_raw_parts(
+                pixels.as_ptr() as *const u8,
+                pixels.len() * 2
+            )
+        };
+        self.interface
+            .send_pixels_streaming(pixels_bytes, is_first_chunk)
+            .map_err(DriverError::InterfaceError)?;
+        Ok(())
+    }
+
+    /// End a frame write operation (for video streaming).
+    /// Completes the frame write sequence started with begin_frame().
+    pub fn end_frame(&mut self) -> Result<(), DriverError<IFACE::Error, RST::Error>> {
+        // Frame write is complete, nothing special needed
+        // The last write_pixels_dma() already completed the transfer
         Ok(())
     }
 

@@ -15,7 +15,9 @@ const CMD_RAMWR: u32 = 0x2C;
 const CMD_RAMWRC: u32 = 0x3C;
 const QSPI_PIXEL_OPCODE: u8 = 0x32;
 const QSPI_CONTROL_OPCODE: u8 = 0x02;
-pub const DMA_CHUNK_SIZE: usize = 16380;
+// DMA chunk size: 32KB for optimal DMA burst performance (tunable: 8-32 KB)
+// Aligned to cache line (64 bytes) for best performance
+pub const DMA_CHUNK_SIZE: usize = 32 * 1024; // 32 KB
 
 /// QSPI implementation of ControllerInterface for SH8601
 pub struct Ws18AmoledDriver {
@@ -81,6 +83,36 @@ impl ControllerInterface for Ws18AmoledDriver {
                     chunk,
                 )?;
             }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    #[link_section = ".iram1.text"]
+    fn send_pixels_streaming(&mut self, pixels: &[u8], is_first_chunk: bool) -> Result<(), Self::Error> {
+        let ramwr_addr_val = (CMD_RAMWR as u32) << 8;
+        let ramwrc_addr_val = (CMD_RAMWRC as u32) << 8;
+
+        // Split into DMA-sized chunks
+        // For streaming: use RAMWR only for the very first chunk (if is_first_chunk is true),
+        // then RAMWRC for all subsequent chunks (including if this pixel buffer is split into multiple DMA chunks)
+        let mut chunks = pixels.chunks(DMA_CHUNK_SIZE).enumerate();
+        while let Some((chunk_idx, chunk)) = chunks.next() {
+            // Determine address: RAMWR only for first chunk of first call (is_first_chunk && chunk_idx == 0)
+            // RAMWRC for all other chunks
+            let address = if is_first_chunk && chunk_idx == 0 {
+                ramwr_addr_val  // First chunk of frame: use RAMWR
+            } else {
+                ramwrc_addr_val  // All subsequent chunks: use RAMWRC (continue write)
+            };
+
+            self.qspi.half_duplex_write(
+                DataMode::Quad,
+                Command::_8Bit(QSPI_PIXEL_OPCODE as u16, DataMode::Single),
+                Address::_24Bit(address, DataMode::Single),
+                0,
+                chunk,
+            )?;
         }
         Ok(())
     }

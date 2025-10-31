@@ -10,6 +10,12 @@ target/
 *.pdb
 assets/png
 assets/rgb
+assets/qoi
+assets/mp4
+assets/mqoi
+assets/mjpeg
+assets/tiles
+
 .idea/
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
@@ -17,3 +23,5 @@ assets/rgb
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+assets/rgb/pic_1_368x448.rgb
+assets/rgb/pic_3_368x448.rgb
