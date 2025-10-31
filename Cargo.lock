@@ -1104,6 +1104,7 @@ dependencies = [
  "esp-hal",
  "esp-println",
  "ft3x68-rs",
+ "heapless",
  "qoi",
  "tinyqoi",
  "zune-jpeg",

@@ -43,6 +43,7 @@ esp-bootloader-esp-idf = { version = "0.2.0", optional = true, features = [
 ft3x68-rs = "0.1.2"
 embedded-hal-bus = "0.3.0"
 tinyqoi = "0.2.0"
+heapless = { version = "0.8", default-features = false }
 qoi = { version = "0.4.1", default-features = false, optional = true }
 zune-jpeg = { version = "0.4", default-features = false }
 
