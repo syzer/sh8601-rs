@@ -49,18 +49,68 @@ convert-mqoi input output='' fps='24' width='368' height='448':
     ./convert_mp4_to_mqoi.sh {{input}} {{output}} {{fps}} {{width}} {{height}}
 
 # Convert MJPEG to tile-based format (dirty tile encoding)
-# Usage: just convert-tiles input.mjpeg [output.tiles] [width] [height] [max_frames]
-# Only encodes changed 16×16 tiles per frame (great for cartoons/animation)
+# Usage: just convert-tiles input.mjpeg [output.tiles] [width] [height] [max_frames] [tile_size]
+# Now using 32×32 tiles for 4× fewer tiles and larger DMA bursts
 # Can achieve 2-10× effective FPS improvement
-# max_frames: Limit conversion to first N frames (default: 20, for smaller binaries)
-convert-tiles input output='' width='368' height='448' max_frames='20':
+# max_frames: Limit conversion to first N frames (default: 5 for 32×32 tiles, keeps ~1.6MB)
+convert-tiles input output='' width='368' height='448' max_frames='5' tile_size='32':
     #!/usr/bin/env bash
     if [ -z "{{output}}" ]; then
         OUTPUT="{{input}}.tiles"
     else
         OUTPUT="{{output}}"
     fi
-    python3 convert_mjpeg_to_tiles.py "{{input}}" "$OUTPUT" {{width}} {{height}} {{max_frames}}
+    python3 convert_mjpeg_to_tiles.py "{{input}}" "$OUTPUT" {{width}} {{height}} {{max_frames}} {{tile_size}}
+
+# Convert all MJPEG files from assets/mjpeg to assets/tiles
+# Uses default settings: 32×32 tiles, 5 frames max, 368×448 resolution
+convert-all-tiles width='368' height='448' max_frames='5' tile_size='32':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    mkdir -p assets/tiles
+    
+    if [ ! -d "assets/mjpeg" ]; then
+        echo "Error: assets/mjpeg directory not found"
+        exit 1
+    fi
+    
+    # Find all .mjpeg files
+    shopt -s nullglob
+    mjpeg_files=(assets/mjpeg/*.mjpeg)
+    
+    if [ ${#mjpeg_files[@]} -eq 0 ]; then
+        echo "No .mjpeg files found in assets/mjpeg/"
+        exit 0
+    fi
+    
+    echo "Found ${#mjpeg_files[@]} MJPEG file(s) to convert"
+    echo "Settings: {{tile_size}}×{{tile_size}} tiles, max {{max_frames}} frames, {{width}}×{{height}}"
+    echo ""
+    
+    for input in "${mjpeg_files[@]}"; do
+        base=$(basename "$input" .mjpeg)
+        output="assets/tiles/${base}.tiles"
+        
+        echo "Converting: $input -> $output"
+        python3 convert_mjpeg_to_tiles.py \
+            "$input" \
+            "$output" \
+            {{width}} {{height}} \
+            {{max_frames}} \
+            {{tile_size}}
+        
+        if [ -f "$output" ]; then
+            size=$(du -h "$output" | cut -f1)
+            echo "  ✓ Created: $output ($size)"
+        else
+            echo "  ✗ Failed to create: $output"
+        fi
+        echo ""
+    done
+    
+    echo "Conversion complete! Output files in assets/tiles/"
+    ls -lh assets/tiles/*.tiles
 
 # Build and run the example on the ESP32-S3
 run:

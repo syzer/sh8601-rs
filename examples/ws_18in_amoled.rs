@@ -32,10 +32,10 @@ esp_app_desc!();
 
 const W: u32 = 368;
 const H: u32 = 448;
-const TILE_SIZE: usize = 16; // 16x16 tiles for v1 stream
+const TILE_SIZE: usize = 32; // 32×32 tiles for better DMA bursts (4× fewer tiles)
 const TILES_X: usize = ((W as usize) + TILE_SIZE - 1) / TILE_SIZE;
 const TILES_Y: usize = ((H as usize) + TILE_SIZE - 1) / TILE_SIZE;
-const MAX_DIRTY_TILES_CONST: usize = TILES_X * TILES_Y; // 23*28 = 644 for 368x448@16
+const MAX_DIRTY_TILES_CONST: usize = TILES_X * TILES_Y; // 12×14 = 168 for 368×448@32
 
 // Two 8KB buffers in DRAM0 for ping-pong DMA (item 3, optimized for larger bursts)
 // 8KB = 4096 u16 pixels = 16 tiles wide (256px) or ~5 full scanlines (368px × 4 = 1472px)

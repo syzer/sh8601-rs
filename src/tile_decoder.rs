@@ -12,9 +12,9 @@
 
 extern crate alloc;
 
-const TILE_SIZE: usize = 16;  // 16×16 tiles
-const TILE_PIXELS: usize = TILE_SIZE * TILE_SIZE;
-const TILE_BYTES: usize = TILE_PIXELS * 2;  // RGB565 = 2 bytes per pixel
+const TILE_SIZE: usize = 32;  // 32×32 tiles (4× larger than 16×16)
+const TILE_PIXELS: usize = TILE_SIZE * TILE_SIZE;  // 1024 pixels per tile
+const TILE_BYTES: usize = TILE_PIXELS * 2;  // RGB565 = 2 bytes per pixel = 2048 bytes
 
 /// Tile decoder for dirty tile format
 pub struct TileDecoder<'a> {

@@ -32,6 +32,11 @@ Goal: ≥ 6 FPS stable on 368×448 (RGB565, tile-encoded)
   - [X] Upgraded from 512B to 8KB per buffer (16× larger!)
   - [X] Can send ~5 full scanlines (368px × 5) in a single chunk
   - [X] Reduces DMA overhead by ~16× compared to 256px buffers
+- [X] **Upgraded to 32×32 tiles** (from 16×16):
+  - [X] 4× fewer tiles overall (12×14 = 168 vs 23×28 = 644)
+  - [X] Larger bursts per tile (2KB vs 512B)
+  - [X] Less overhead (fewer dirty checks, fewer set_window calls)
+  - [X] 1.6MB for 5 frames (fits in flash, ~320KB per frame)
 - [X] Align each buffer to **64 bytes** for cache line safety.
 - [X] Avoid allocations and `println!` inside the render loop.
 - [X] Call `write_pixels_dma_u16()` immediately after copying tile data.

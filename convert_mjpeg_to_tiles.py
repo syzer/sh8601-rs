@@ -24,7 +24,7 @@ import sys
 from PIL import Image
 import io
 
-TILE_SIZE = 16  # 16×16 tiles
+TILE_SIZE = 32  # Default: 32×32 tiles (can be overridden via command line)
 MAGIC = b"TILE"
 VERSION = 1
 
@@ -127,8 +127,9 @@ def decode_jpeg_frame(jpeg_data: bytes) -> Image.Image:
 
 
 def get_tile_rgb565(image: Image.Image, tile_x: int, tile_y: int, width: int, height: int) -> bytes:
-    """Extract 16×16 tile as RGB565 big-endian bytes."""
-    tile = bytearray(512)  # 16×16×2 bytes
+    """Extract TILE_SIZE×TILE_SIZE tile as RGB565 big-endian bytes."""
+    tile_bytes = TILE_SIZE * TILE_SIZE * 2  # TILE_SIZE×TILE_SIZE×2 bytes
+    tile = bytearray(tile_bytes)
     
     x_start = tile_x * TILE_SIZE
     y_start = tile_y * TILE_SIZE
@@ -282,8 +283,8 @@ def convert_mjpeg_to_tiles(input_mjpeg: bytes, output_file: str, width: int, hei
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <input.mjpeg> <output.tiles> <width> <height> [max_frames]")
-        print(f"Example: {sys.argv[0]} video.mjpeg video.tiles 368 448 20")
+        print(f"Usage: {sys.argv[0]} <input.mjpeg> <output.tiles> <width> <height> [max_frames] [tile_size]")
+        print(f"Example: {sys.argv[0]} video.mjpeg video.tiles 368 448 20 32")
         sys.exit(1)
     
     input_file = sys.argv[1]
@@ -291,6 +292,12 @@ if __name__ == '__main__':
     width = int(sys.argv[3])
     height = int(sys.argv[4])
     max_frames = int(sys.argv[5]) if len(sys.argv) > 5 else None
+    tile_size_arg = int(sys.argv[6]) if len(sys.argv) > 6 else None
+    
+    # Update global TILE_SIZE if provided
+    if tile_size_arg:
+        TILE_SIZE = tile_size_arg
+    print(f"Using tile size: {TILE_SIZE}×{TILE_SIZE}")
     
     with open(input_file, 'rb') as f:
         mjpeg_data = f.read()
