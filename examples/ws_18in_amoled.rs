@@ -160,7 +160,7 @@ fn main() -> ! {
                 j += 1;
             }
 
-            // One horizontal group window
+            // One set_window() per horizontal run
             let x_start = (start_tx as usize) * TILE_SIZE;
             let x_end   = ((end_tx as usize + 1) * TILE_SIZE - 1).min(fb_w - 1);
             let y_start = (ty as usize) * TILE_SIZE;
@@ -173,7 +173,8 @@ fn main() -> ! {
             let group_w = x_end - x_start + 1;
             let mut use_a = true;
 
-            // Stream rows of this group; first row MUST use RAMWR (is_first_chunk = true)
+            // Stream rows via DMA ping-pong (A/B)
+            // RAMWR on first row of this run, RAMWRC on the rest
             for row in 0..TILE_SIZE {
                 let y = y_start + row;
                 if y > y_end { break; }
@@ -182,9 +183,12 @@ fn main() -> ! {
                 unsafe {
                     let dst = if use_a { &mut A.data[..group_w] } else { &mut B.data[..group_w] };
                     dst.copy_from_slice(src);
-                    let _ = display.write_pixels_dma_u16(dst, row == 0); // RAMWR on first row
+                    
+                    // First row of each horizontal run = RAMWR, subsequent rows = RAMWRC
+                    let is_first_chunk = row == 0;
+                    let _ = display.write_pixels_dma_u16(dst, is_first_chunk);
                 }
-                use_a = !use_a;
+                use_a = !use_a; // Ping-pong: swap buffers for next row
             }
 
             i = j;
