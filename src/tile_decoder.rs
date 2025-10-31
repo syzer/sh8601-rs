@@ -23,7 +23,9 @@ pub struct TileDecoder<'a> {
     offsets_table_start: usize,
     width: u32,
     height: u32,
+    #[allow(dead_code)]
     tiles_x: usize,
+    #[allow(dead_code)]
     tiles_y: usize,
 }
 

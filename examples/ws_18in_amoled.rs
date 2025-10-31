@@ -37,10 +37,10 @@ const TILES_X: usize = ((W as usize) + TILE_SIZE - 1) / TILE_SIZE;
 const TILES_Y: usize = ((H as usize) + TILE_SIZE - 1) / TILE_SIZE;
 const MAX_DIRTY_TILES_CONST: usize = TILES_X * TILES_Y; // 23*28 = 644 for 368x448@16
 
-// Two 4KB buffers in DRAM0 for ping-pong DMA (item 3, optimized for larger bursts)
-// 4KB = 2048 u16 pixels = 8 tiles wide (128px) or 2 full scanlines (368px × 2 = 736px)
+// Two 8KB buffers in DRAM0 for ping-pong DMA (item 3, optimized for larger bursts)
+// 8KB = 4096 u16 pixels = 16 tiles wide (256px) or ~5 full scanlines (368px × 4 = 1472px)
 // Aligned to 64 bytes for cache line safety
-const DMA_BUFFER_SIZE: usize = 2048;  // 2048 pixels = 4 KB per buffer
+const DMA_BUFFER_SIZE: usize = 4096;  // 4096 pixels = 8 KB per buffer (bigger bursts -> fewer DMA calls)
 
 #[repr(align(64))]
 struct AlignedU16<const N: usize> { data: [u16; N] }

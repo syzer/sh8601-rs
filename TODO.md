@@ -28,7 +28,10 @@ Goal: ≥ 6 FPS stable on 368×448 (RGB565, tile-encoded)
 ---
 
 ## ⚡ 3. Optimize DMA Path
-- [X] Keep **two 16×16 (256 px)** buffers in `.dram0.bss` for ping-pong DMA.
+- [X] Keep **two 8KB (4096 px)** buffers in `.dram0.bss` for ping-pong DMA.
+  - [X] Upgraded from 512B to 8KB per buffer (16× larger!)
+  - [X] Can send ~5 full scanlines (368px × 5) in a single chunk
+  - [X] Reduces DMA overhead by ~16× compared to 256px buffers
 - [X] Align each buffer to **64 bytes** for cache line safety.
 - [X] Avoid allocations and `println!` inside the render loop.
 - [X] Call `write_pixels_dma_u16()` immediately after copying tile data.
@@ -65,8 +68,9 @@ Goal: ≥ 6 FPS stable on 368×448 (RGB565, tile-encoded)
   - [X] Framebuffer (368×448×2 = 330KB) allocated via `new_heap()` in PSRAM
   - [X] `prev_tiles` BTreeMap in PSRAM (heap-allocated)
   - [X] TILE_VIDEO constant in flash (`.rodata`)
-- [X] Keep small DMA buffers and code in **DRAM0 / IRAM**.
-  - [X] Two 16×16 tile buffers (512 bytes each) in `.dram0.bss`
+- [X] Keep DMA buffers in **DRAM0** for fast access.
+  - [X] Two 8KB DMA buffers (4096 pixels each) in `.dram0.bss`
+  - [X] Total: 16KB for ping-pong buffering (upgraded from 1KB → 16× larger!)
   - [X] `dirty` heapless::Vec (stack-allocated, ~2.6KB max) in DRAM
 - [X] Mark hot functions with `#[link_section = ".iram1.text"]`.
   - [X] `blit_tile_hot()` - tile blitting to framebuffer
