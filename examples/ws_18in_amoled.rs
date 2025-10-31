@@ -7,6 +7,7 @@ use sh8601_rs::{
 };
 
 use alloc::collections::BTreeMap;
+use heapless::Vec;
 
 extern crate alloc;
 use esp_alloc as _;
@@ -110,14 +111,19 @@ fn main() -> ! {
     // Previous-tile cache for the decoder (v1)
     let mut prev_tiles = BTreeMap::<(u8,u8), alloc::vec::Vec<u8>>::new();
 
+    // Reusable dirty tile list (outside loop, cleared each frame)
+    // Max tiles: 368/16 * 448/16 = 23 * 28 = 644, use 400 for typical dirty count
+    const MAX_DIRTY_TILES: usize = 400;
+    let mut dirty: Vec<(u8, u8), MAX_DIRTY_TILES> = Vec::new();
+
     // FPS
     let mut t0 = Instant::now();
     let mut frames = 0u32;
     let mut frame_idx = 0usize;
 
     loop {
-        // Dirty list for THIS frame only
-        let mut dirty: alloc::vec::Vec<(u8,u8)> = alloc::vec::Vec::new();
+        // Clear dirty list for this frame (reuse allocation)
+        dirty.clear();
 
         // Decode tiles into FB and collect coords per-frame
         let res = decoder.decode_frame_with_callback(
@@ -135,7 +141,9 @@ fn main() -> ! {
                     let len = core::cmp::min(TILE_SIZE, (W as usize) - x0);
                     fb_row[x0 .. x0 + len].copy_from_slice(&src_row[..len]);
                 }
-                dirty.push((tx, ty)); // record THIS frame’s change
+                if dirty.push((tx, ty)).is_err() {
+                    // Vec full (shouldn't happen with 400 capacity), but handle gracefully
+                }
             }
         );
 
@@ -145,13 +153,15 @@ fn main() -> ! {
             continue;
         }
 
-        // Coalesce horizontally (same ty, consecutive tx)
-        dirty.sort_by(|a,b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+        // Quick wins: sort dirty tiles (heapless Vec is fast, no heap allocations)
+        dirty.sort_unstable_by(|a,b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
 
-        let mut i = 0usize;
+        // Coalesce horizontally then vertically into rectangles
         let fb_w = W as usize;
+        let mut i = 0usize;
 
         while i < dirty.len() {
+            // Step 1: Coalesce horizontally (same ty, consecutive tx)
             let (start_tx, ty) = dirty[i];
             let mut end_tx = start_tx;
             let mut j = i + 1;
@@ -160,38 +170,74 @@ fn main() -> ! {
                 j += 1;
             }
 
-            // One set_window() per horizontal run
+            // Step 2: Coalesce vertically - check if next horizontal runs can merge
+            let mut end_ty = ty;
+            let mut k = j;
+            
+            // Look ahead for adjacent rows with identical x_start/x_end
+            while k < dirty.len() {
+                // Check if next run starts on adjacent row (ty + 1)
+                if dirty[k].1 != end_ty + 1 {
+                    break;
+                }
+                
+                // Check if next run has same x bounds
+                let (next_start_tx, next_ty) = dirty[k];
+                if next_start_tx != start_tx {
+                    break;
+                }
+                
+                // Check if this run extends to same end_tx
+                let mut next_end_tx = next_start_tx;
+                let mut next_k = k + 1;
+                while next_k < dirty.len() && dirty[next_k].1 == next_ty && dirty[next_k].0 == next_end_tx + 1 {
+                    next_end_tx += 1;
+                    next_k += 1;
+                }
+                
+                if next_end_tx != end_tx {
+                    break; // Different width, can't merge
+                }
+                
+                // This row matches - merge it
+                end_ty = next_ty;
+                k = next_k;
+            }
+
+            // Calculate rectangle bounds (coalesced horizontally and vertically)
             let x_start = (start_tx as usize) * TILE_SIZE;
             let x_end   = ((end_tx as usize + 1) * TILE_SIZE - 1).min(fb_w - 1);
             let y_start = (ty as usize) * TILE_SIZE;
-            let y_end   = ((ty as usize + 1) * TILE_SIZE - 1).min(H as usize - 1);
+            let y_end   = ((end_ty as usize + 1) * TILE_SIZE - 1).min(H as usize - 1);
 
+            // One set_window() per coalesced rectangle
             if display.set_window(x_start as u16, y_start as u16, x_end as u16, y_end as u16).is_err() {
-                i = j; continue;
+                i = k; continue;
             }
 
-            let group_w = x_end - x_start + 1;
+            let rect_w = x_end - x_start + 1;
+            let rect_h = y_end - y_start + 1;
             let mut use_a = true;
 
             // Stream rows via DMA ping-pong (A/B)
-            // RAMWR on first row of this run, RAMWRC on the rest
-            for row in 0..TILE_SIZE {
+            // RAMWR on first row, RAMWRC on the rest
+            for row in 0..rect_h {
                 let y = y_start + row;
                 if y > y_end { break; }
 
-                let src = &fb_u16[y * fb_w + x_start .. y * fb_w + x_start + group_w];
+                let src = &fb_u16[y * fb_w + x_start .. y * fb_w + x_start + rect_w];
                 unsafe {
-                    let dst = if use_a { &mut A.data[..group_w] } else { &mut B.data[..group_w] };
+                    let dst = if use_a { &mut A.data[..rect_w] } else { &mut B.data[..rect_w] };
                     dst.copy_from_slice(src);
                     
-                    // First row of each horizontal run = RAMWR, subsequent rows = RAMWRC
+                    // First row of rectangle = RAMWR, subsequent rows = RAMWRC
                     let is_first_chunk = row == 0;
                     let _ = display.write_pixels_dma_u16(dst, is_first_chunk);
                 }
                 use_a = !use_a; // Ping-pong: swap buffers for next row
             }
 
-            i = j;
+            i = k; // Skip all merged rows
         }
 
         frames += 1;
