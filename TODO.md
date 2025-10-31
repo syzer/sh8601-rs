@@ -86,8 +86,65 @@ Goal: ≥ 6 FPS stable on 368×448 (RGB565, tile-encoded)
 
 ## 🧮 8. Encoder Tweaks
 - [ ] Verify tile encoder marks only **changed tiles**.
-- [ ] Consider larger tile size (e.g. 32×16) if scenes have full-screen motion.
+- [X] Consider larger tile size (e.g. 32×32) → **Done: using 32×32 tiles**
 - [ ] For static backgrounds, raise diff-threshold to minimize tile churn.
+
+---
+
+## 🔬 9. Residual Encoding (Alternative Approach - Experimental)
+
+**See `RESIDUAL_FORMAT.md` for full details**
+
+### Concept:
+Encode **XOR residuals** instead of tiles:
+1. `residual = curr_frame ^ prev_frame` (byte-wise XOR on RGB565)
+2. Zero-RLE encode (most pixels = 0x0000 for unchanged areas)
+3. LZ4HC compress final result
+
+### Expected Benefits:
+- **3-6× compression** on cartoons (large flat/unchanged areas)
+- **Simpler decoder**: LZ4 decompress → Zero-RLE expand → XOR apply
+- **No tile overhead**: No dirty tracking, coalescing, or multiple set_window() calls
+- **Cache-friendly**: Single linear pass over framebuffer
+
+### Expected Drawbacks:
+- **Full-frame decode**: Must decode entire frame even for small changes
+- **LZ4 CPU cost**: Decompression overhead (~400 MB/s on ESP32-S3)
+- **Works best for**: Large moving objects, not sparse UI changes
+
+### Implementation Status:
+- [X] Created `convert_mjpeg_to_residuals.py` encoder (XOR + Zero-RLE + LZ4HC)
+- [X] Created `RESIDUAL_FORMAT.md` documentation
+- [X] Install lz4: `pip install lz4` ✓
+- [X] Test encode: `just convert-residuals assets/mjpeg/Yasin_no_cow.mjpeg` ✓
+- [X] Implement Rust decoder in `src/residual_decoder.rs` ✓
+- [X] Create example: `examples/ws_18in_amoled_residuals.rs` (130 lines vs 298 for tiles!)
+- [X] Add justfile commands: `just run-residuals` and `just release-residuals`
+- [ ] **TEST ON DEVICE:** Benchmark decode time and FPS
+- [ ] **Decision:** Compare both, keep winner (or keep both as options)
+
+### 🎉 Encoding Results (5 frames, 368×448):
+
+| Metric | Tiles (32×32) | Residuals | Winner |
+|--------|---------------|-----------|--------|
+| **File size** | 1.6 MB | 0.83 MB | **Residuals (1.9× smaller)** |
+| **Avg/frame** | ~320 KB | ~174 KB | **Residuals** |
+| **Frame 1** | - | 203 KB (1.6× - keyframe) | - |
+| **Frame 2** | - | 104 KB (3.2× - best) | - |
+| **Frames 3-5** | - | 176-202 KB (1.6-1.9×) | - |
+
+**Residuals win on file size!** Now need to test decode speed on device.
+
+### Quick Comparison Command:
+```bash
+# Encode both formats (5 frames)
+just convert-tiles assets/mjpeg/Yasin_no_cow.mjpeg
+just convert-residuals assets/mjpeg/Yasin_no_cow.mjpeg
+
+# Compare sizes
+ls -lh assets/tiles/Yasin_no_cow.tiles
+ls -lh assets/residuals/Yasin_no_cow.residuals
+```
 
 ---
 
@@ -97,5 +154,6 @@ After implementing the above:
 - No BTreeMap overhead.
 - Fewer SPI commands.
 - 5–7 FPS typical, 8+ FPS peak on 80 MHz QSPI (368×448 RGB565).
+- **OR** residual encoding if it proves faster/smaller.
 
 ---

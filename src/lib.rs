@@ -44,6 +44,7 @@ pub mod displays;
 
 #[cfg(feature = "waveshare_18_amoled")]
 pub mod tile_decoder;
+pub mod residual_decoder;
 
 #[cfg(feature = "waveshare_18_amoled")]
 pub use displays::waveshare_18_amoled::*;

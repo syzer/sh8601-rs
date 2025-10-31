@@ -62,6 +62,20 @@ convert-tiles input output='' width='368' height='448' max_frames='5' tile_size=
     fi
     python3 convert_mjpeg_to_tiles.py "{{input}}" "$OUTPUT" {{width}} {{height}} {{max_frames}} {{tile_size}}
 
+# Convert MJPEG to residual format (XOR + Zero-RLE + LZ4HC)
+# Experimental: may be better for large moving objects vs tiles
+convert-residuals input output='' width='368' height='448' max_frames='5':
+    #!/usr/bin/env bash
+    if [ -z "{{output}}" ]; then
+        base=$(basename "{{input}}" .mjpeg)
+        OUTPUT="assets/residuals/${base}.residuals"
+    else
+        OUTPUT="{{output}}"
+    fi
+    mkdir -p assets/residuals
+    # Use the Python from PATH (should be asdf-managed)
+    python convert_mjpeg_to_residuals.py "{{input}}" "$OUTPUT" {{width}} {{height}} {{max_frames}}
+
 # Convert all MJPEG files from assets/mjpeg to assets/tiles
 # Uses default settings: 32×32 tiles, 5 frames max, 368×448 resolution
 convert-all-tiles width='368' height='448' max_frames='5' tile_size='32':
@@ -112,9 +126,17 @@ convert-all-tiles width='368' height='448' max_frames='5' tile_size='32':
     echo "Conversion complete! Output files in assets/tiles/"
     ls -lh assets/tiles/*.tiles
 
-# Build and run the example on the ESP32-S3
+# Build and run the tile-based example on the ESP32-S3
 run:
     cargo run --example ws_18in_amoled --features "waveshare_18_amoled"
+
+# Build and run the residual-based example on the ESP32-S3 (RELEASE mode for performance)
+run-residuals:
+    cargo run --example ws_18in_amoled_residuals --features "waveshare_18_amoled" --release
+
+# Debug mode for residuals (slow, only for debugging)
+debug-residuals:
+    cargo run --example ws_18in_amoled_residuals --features "waveshare_18_amoled"
 
 release:
     cargo run --example ws_18in_amoled --features "waveshare_18_amoled" --release
