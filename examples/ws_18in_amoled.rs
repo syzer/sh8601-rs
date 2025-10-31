@@ -33,8 +33,11 @@ esp_app_desc!();
 const W: u32 = 368;
 const H: u32 = 448;
 const TILE_SIZE: usize = 16; // 16x16 tiles for v1 stream
+const TILES_X: usize = ((W as usize) + TILE_SIZE - 1) / TILE_SIZE;
+const TILES_Y: usize = ((H as usize) + TILE_SIZE - 1) / TILE_SIZE;
+const MAX_DIRTY_TILES_CONST: usize = TILES_X * TILES_Y; // 23*28 = 644 for 368x448@16
 
-// Small ping-pong line buffers in DRAM0 for DMA bursts
+// Small ping-pong line buffers in DRAM0 for DMA bursts (full display width)
 #[repr(align(64))]
 struct AlignedU16<const N: usize> { data: [u16; N] }
 
@@ -112,8 +115,8 @@ fn main() -> ! {
     let mut prev_tiles = BTreeMap::<(u8,u8), alloc::vec::Vec<u8>>::new();
 
     // Reusable dirty tile list (outside loop, cleared each frame)
-    // Max tiles: 368/16 * 448/16 = 23 * 28 = 644, use 400 for typical dirty count
-    const MAX_DIRTY_TILES: usize = 400;
+    // Capacity == worst-case tiles to avoid dropping rectangles on keyframes.
+    const MAX_DIRTY_TILES: usize = MAX_DIRTY_TILES_CONST;
     let mut dirty: Vec<(u8, u8), MAX_DIRTY_TILES> = Vec::new();
 
     // FPS
@@ -235,6 +238,16 @@ fn main() -> ! {
                     let _ = display.write_pixels_dma_u16(dst, is_first_chunk);
                 }
                 use_a = !use_a; // Ping-pong: swap buffers for next row
+            }
+            // Ensure DMA is idle before changing window for next rectangle.
+            // If the driver exposes a blocking flush/idle API, prefer that; otherwise this is a no-op.
+            #[allow(unused_must_use)]
+            {
+                // Try common method names in sh8601-rs:
+                #[cfg(any())]
+                display.flush_dma();
+                #[cfg(any())]
+                display.wait_for_dma_idle();
             }
 
             i = k; // Skip all merged rows
