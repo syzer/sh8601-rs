@@ -22,7 +22,7 @@ use esp_hal::{
         master::{Config as SpiConfig, Spi},
         Mode,
     },
-    time::Rate,
+    time::{Instant, Rate},
 };
 use esp_println::println;
 
@@ -201,7 +201,11 @@ fn main() -> ! {
     // Previous frame tiles cache (for tile decoder state)
     let mut prev_tiles = BTreeMap::new();
     
+    // FPS tracking
+    let mut t0 = Instant::now();
+    let mut frames: u32 = 0;
     let mut frame_count = 0;
+    
     loop {
         // Clear framebuffer for first frame (all tiles encoded)
         // Subsequent frames only update changed tiles
@@ -259,8 +263,17 @@ fn main() -> ! {
                 let _ = display.end_frame();
                 
                 frame_count += 1;
-                // Only print occasionally (not every frame) - moved outside hot path
-                if frame_count == 1 || (frame_count % 60 == 0) {
+                frames += 1;
+                
+                // Calculate FPS every second
+                let elapsed_ms = t0.elapsed().as_millis();
+                if elapsed_ms >= 1000 {
+                    let fps = (frames as f32) * 1000.0 / (elapsed_ms as f32);
+                    println!("Frame {} ({} tiles, {} total, {:.1} FPS)", frame_idx, tiles_decoded, frame_count, fps);
+                    frames = 0;
+                    t0 = Instant::now();
+                } else if frame_count == 1 || (frame_count % 60 == 0) {
+                    // Print frame info occasionally (before 1 second has elapsed)
                     println!("Frame {} ({} tiles, {} total)", frame_idx, tiles_decoded, frame_count);
                 }
             }
