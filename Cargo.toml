@@ -15,6 +15,11 @@ exclude = ["target/debug/*", "assets/*"]
 name = "sh8601_rs"
 path = "src/lib.rs"
 
+[[bin]]
+name = "convert_rgb_to_qoi"
+path = "convert_rgb_to_qoi.rs"
+required-features = ["std"]
+
 [dependencies]
 embedded-hal = "1.0.0"
 embedded-graphics = "0.8.1"
@@ -42,9 +47,13 @@ esp-bootloader-esp-idf = { version = "0.2.0", optional = true, features = [
 ] }
 ft3x68-rs = "0.1.2"
 embedded-hal-bus = "0.3.0"
+tinyqoi = "0.2.0"
+qoi = { version = "0.4.1", default-features = false, optional = true }
 
 
 [features]
+default = []
+std = ["dep:qoi"]
 ## Enable support for the Waveshare 1.8" AMOLED display
 waveshare_18_amoled = [
   "dep:esp-alloc",

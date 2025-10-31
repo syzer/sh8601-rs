@@ -15,8 +15,9 @@ use embedded_graphics::{
     prelude::*,
     primitives::{PrimitiveStyleBuilder},
     text::{Alignment, LineHeight, Text, TextStyleBuilder},
-    image::{Image, ImageRaw},
+    image::Image,
 };
+use tinyqoi::Qoi;
 
 extern crate alloc;
 use esp_alloc as _;
@@ -98,23 +99,43 @@ const H: u32 = 448;
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
-    // Puts the image into the firmware. One 368×448 RGB888 image is ~496 KB; RGB565 is ~330 KB.
-    // If you’ll show many images, don’t embed—load from SD or SPI flash.
-    static IMG1: &[u8] = include_bytes!("../assets/rgb/pic_1_368x448.rgb");
-    static IMG2: &[u8] = include_bytes!("../assets/rgb/pic_2_368x448.rgb");
-    static IMG3: &[u8] = include_bytes!("../assets/rgb/pic_3_368x448.rgb");
+    // Puts the QOI-compressed images into the firmware. 
+    // QOI provides significant compression: ~155-309 KB vs ~496 KB for raw RGB888.
+    // If you'll show many images, don't embed—load from SD or SPI flash.
+    static QOI1: &[u8] = include_bytes!("../assets/qoi/pic_1_368x448.qoi");
+    static QOI2: &[u8] = include_bytes!("../assets/qoi/pic_2_368x448.qoi");
+    static QOI3: &[u8] = include_bytes!("../assets/qoi/pic_3_368x448.qoi");
+
+    // Parse QOI images at startup
+    // tinyqoi::Qoi implements ImageDrawable, so we can use it directly with embedded-graphics
+    let qoi1 = match Qoi::new(QOI1) {
+        Ok(q) => q,
+        Err(e) => {
+            println!("Error parsing QOI1: {:?}", e);
+            loop {}
+        }
+    };
+
+    let qoi2 = match Qoi::new(QOI2) {
+        Ok(q) => q,
+        Err(e) => {
+            println!("Error parsing QOI2: {:?}", e);
+            loop {}
+        }
+    };
+
+    let qoi3 = match Qoi::new(QOI3) {
+        Ok(q) => q,
+        Err(e) => {
+            println!("Error parsing QOI3: {:?}", e);
+            loop {}
+        }
+    };
 
     // Image playlist and state
-    let images: [&[u8]; 3] = [IMG1, IMG2, IMG3];
+    let qoi_images: [&Qoi; 3] = [&qoi1, &qoi2, &qoi3];
     let mut img_idx: usize = 0;
     let mut prev_pressed = false; // simple edge detection
-
-    // Prebuild ImageRaw objects once at startup (avoid per-touch construction)
-    let raws: [ImageRaw<'static, Rgb888>; 3] = [
-        ImageRaw::<Rgb888>::new(images[0], W),
-        ImageRaw::<Rgb888>::new(images[1], W),
-        ImageRaw::<Rgb888>::new(images[2], W),
-    ];
 
     esp_alloc::psram_allocator!(peripherals.PSRAM, esp_hal::psram);
 
@@ -237,7 +258,7 @@ fn main() -> ! {
 
     // Draw initial image (index 0)
     {
-        if let Err(_e) = Image::new(&raws[img_idx], Point::new(0, 0)).draw(&mut display) {
+        if let Err(_e) = Image::new(qoi_images[img_idx], Point::new(0, 0)).draw(&mut display) {
             println!("Error drawing image");
         }
         let _ = display.flush().ok();
@@ -249,8 +270,8 @@ fn main() -> ! {
             Ok(TouchState::Pressed(p)) => {
                 if !prev_pressed {
                     // edge: Released -> Pressed
-                    img_idx = (img_idx + 1) % images.len();
-                    if let Err(_e) = Image::new(&raws[img_idx], Point::new(0, 0)).draw(&mut display) {
+                    img_idx = (img_idx + 1) % qoi_images.len();
+                    if let Err(_e) = Image::new(qoi_images[img_idx], Point::new(0, 0)).draw(&mut display) {
                         println!("Error drawing image");
                     }
                     // bit shit, but will do7
